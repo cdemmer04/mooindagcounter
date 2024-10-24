@@ -1,21 +1,13 @@
 from flask import Flask, render_template, request, redirect, url_for
 from datetime import datetime 
 import time
-import mysql.connector
+import sqlite3
 
 app = Flask(__name__)
 
-# Timestamp for last increment
-last_increment_time = 0
-
+# Connect with database
 def connect_db():
-    conn = mysql.connector.connect(
-        host="localhost",
-        user="mooindagcounter",
-        password="7J3JcTG3v[G2T4]]",
-        database="mooindagcounter"
-    )
-    return conn
+    return sqlite3.connect('mooindagcounter-sqlite.db')
 
 # Laad de meest recente teller en bericht uit de database
 def load_counter():
@@ -46,14 +38,21 @@ def load_all_counters():
     cursor.close()
     conn.close()
 
-    return result
+    counters = []
+
+    for row in result:
+        id, message, date_str = row
+        date_obj = datetime.strptime(date_str, '%Y-%m-%d').date()  # String omzetten naar datetime.date object
+        counters.append((id, message, date_obj))  # Voeg het omgezette object toe aan de lijst
+
+    return counters
 
 # Sla nieuwe teller en bericht op in de database
 def save_counter(counter, message, date):
     conn = connect_db()
     cursor = conn.cursor()
 
-    query = "INSERT INTO counts (id, message, date) VALUES (%s, %s, %s)"
+    query = "INSERT INTO counts (id, message, date) VALUES (?, ?, ?)"
     cursor.execute(query, (counter, message, date))
     conn.commit()
 
@@ -68,15 +67,6 @@ def index():
 
 @app.route('/increment', methods=['POST'])
 def increment():
-    # # Cooldown
-    # global last_increment_time
-    # current_time = time.time()
-
-    # if current_time - last_increment_time < 2:
-    #     return redirect(url_for('index'))
-
-    # last_increment_time = current_time
-
     # date
     date = datetime.now().date()
 
