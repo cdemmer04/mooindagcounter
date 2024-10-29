@@ -1,15 +1,23 @@
-import os
-from dotenv import load_dotenv
+import requests
 
-# IM;ort environment variables from file
-load_dotenv("./.env")  
 
-# Verkrijg de omgevingsvariabelen
-db_user = os.getenv("DB_USER")
-db_password = os.getenv("DB_PASSWORD")
-db_name = os.getenv("DB_NAME")
 
-# Print de waarden om te controleren
-print("DB_USER:", db_user)
-print("DB_PASSWORD:", db_password)
-print("DB_NAME:", db_name)
+# client_ip = request.headers.get('X-Forwarded-For')
+# if client_ip:
+#     client_ip = client_ip.split(',')[0]
+# else:
+#     client_ip = request.remote_addr
+
+# Gebruik een externe API om de locatie op te halen
+client_ip = "141.224.195.119"
+
+try:
+    response = requests.get(f'https://ipinfo.io/{client_ip}/json')
+    location_data = response.json()
+    
+    city = location_data.get('city', 'Unknown')
+    country = location_data.get('country', 'Unknown')
+except requests.RequestException:
+    city = country = 'Unknown'
+
+f"{city}, {country}"

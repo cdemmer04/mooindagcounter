@@ -1,17 +1,20 @@
 from flask import Flask, render_template, request, redirect, url_for
 from datetime import datetime 
-import time
 import mysql.connector
 import os
 from dotenv import load_dotenv
+import requests
 
 app = Flask(__name__)
 
 # Load environment variables
 load_dotenv("./.env")
 
-# Timestamp for last increment
-last_increment_time = 0
+@app.route('/')
+def index():
+    data = load_counter()
+    counter = data[0]
+    return render_template('index.html', counter=counter)
 
 def connect_db():
     conn = mysql.connector.connect(
@@ -44,7 +47,7 @@ def load_all_counters():
     conn = connect_db()
     cursor = conn.cursor()
 
-    query = "SELECT id, message, date FROM counts ORDER BY id DESC"
+    query = "SELECT id, message, date, city, country FROM counts ORDER BY id DESC"
     cursor.execute(query)
 
     result = cursor.fetchall()
@@ -54,35 +57,19 @@ def load_all_counters():
     return result
 
 # Sla nieuwe teller en bericht op in de database
-def save_counter(counter, message, date):
+def save_counter(counter, message, date, city, country):
     conn = connect_db()
     cursor = conn.cursor()
 
-    query = "INSERT INTO counts (id, message, date) VALUES (%s, %s, %s)"
-    cursor.execute(query, (counter, message, date))
+    query = "INSERT INTO counts (id, message, date, city, country) VALUES (%s, %s, %s, %s, %s)"
+    cursor.execute(query, (counter, message, date, city, country))
     conn.commit()
 
     cursor.close()
     conn.close()
 
-@app.route('/')
-def index():
-    data = load_counter()
-    counter = data[0]
-    return render_template('index.html', counter=counter)
-
 @app.route('/increment', methods=['POST'])
 def increment():
-    # # Cooldown
-    # global last_increment_time
-    # current_time = time.time()
-
-    # if current_time - last_increment_time < 2:
-    #     return redirect(url_for('index'))
-
-    # last_increment_time = current_time
-
-    # date
     date = datetime.now().date()
 
     # Get current counter and increment
@@ -93,11 +80,28 @@ def increment():
     # Get message from form
     message = request.form.get("message")
 
+        # Get client IP adress
+    client_ip = request.headers.get('X-Forwarded-For')
+    if client_ip:
+        client_ip = client_ip.split(',')[0]
+    else:
+        client_ip = request.remote_addr
+
+    # Use external api to get location
+    try:
+        response = requests.get(f'https://ipinfo.io/{client_ip}/json')
+        location_data = response.json()
+        
+        city = location_data.get('city', 'Unknown')
+        country = location_data.get('country', 'Unknown')
+    except requests.RequestException:
+        city = country = 'Unknown'
+
     # Save new record to databse
-    save_counter(counter, message, date)
+    save_counter(counter, message, date, city, country)
     return redirect(url_for('index'))
 
-# Route om alle counts en berichten te bekijken
+# Route om alle records te bekijken
 @app.route('/overview')
 def overview():
     # Get all data
