@@ -1,6 +1,6 @@
 from flask import Flask, render_template, request, redirect, url_for
 from datetime import datetime 
-import mysql.connector
+import mariadb
 import os
 from dotenv import load_dotenv
 import requests
@@ -17,7 +17,7 @@ def index():
     return render_template('index.html', counter=counter)
 
 def connect_db():
-    conn = mysql.connector.connect(
+    conn = mariadb.connect(
         host="localhost",
         user=os.getenv("DB_USER"),
         password=os.getenv("DB_PASSWORD"),
