@@ -1,5 +1,6 @@
 import os
 from dotenv import load_dotenv
+import mariadb
 
 # IM;ort environment variables from file
 load_dotenv("./.env")  
@@ -13,3 +14,4 @@ db_name = os.getenv("DB_NAME")
 print("DB_USER:", db_user)
 print("DB_PASSWORD:", db_password)
 print("DB_NAME:", db_name)
+

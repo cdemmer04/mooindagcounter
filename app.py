@@ -1,7 +1,7 @@
 from flask import Flask, render_template, request, redirect, url_for, send_from_directory
 from datetime import datetime 
 import time
-import mysql.connector
+import mariadb
 import os
 from dotenv import load_dotenv
 
@@ -14,7 +14,7 @@ load_dotenv("./.env")
 last_increment_time = 0
 
 def connect_db():
-    conn = mysql.connector.connect(
+    conn = mariadb.connect(
         host="localhost",
         user=os.getenv("DB_USER"),
         password=os.getenv("DB_PASSWORD"),
