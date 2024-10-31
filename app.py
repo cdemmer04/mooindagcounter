@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, redirect, url_for
+from flask import Flask, render_template, request, redirect, url_for, send_from_directory
 from datetime import datetime 
 import time
 import mysql.connector
@@ -64,6 +64,10 @@ def save_counter(counter, message, date):
 
     cursor.close()
     conn.close()
+
+@app.route('/robots.txt')
+def robots_txt():
+    return send_from_directory('static', 'robots.txt', mimetype='text/plain')
 
 @app.route('/')
 def index():
