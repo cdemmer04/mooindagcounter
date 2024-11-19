@@ -14,4 +14,3 @@ db_name = os.getenv("DB_NAME")
 print("DB_USER:", db_user)
 print("DB_PASSWORD:", db_password)
 print("DB_NAME:", db_name)
-

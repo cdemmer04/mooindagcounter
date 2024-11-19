@@ -3,6 +3,7 @@ from datetime import datetime
 import time
 import mariadb
 import os
+import requests
 from dotenv import load_dotenv
 
 app = Flask(__name__)
@@ -98,7 +99,16 @@ def increment():
     message = request.form.get("message")
 
     # Save new record to databse
-    save_counter(counter, message, date)
+    # save_counter(counter, message, date)
+
+    discord_webhook_url = os.getenv("DISCORD_WEBHOOK_URL")
+
+    if discord_webhook_url:
+        discord_data = {
+            "content": f"Counter: {counter}\n{message}"
+        }
+        requests.post(discord_webhook_url, json=discord_data)
+
     return redirect(url_for('index'))
 
 # Route om alle counts en berichten te bekijken
