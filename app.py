@@ -101,8 +101,8 @@ def increment():
     # Save new record to databse
     save_counter(counter, message, date)
 
-    # Set data to discordd webhook
-    send_discord(counter, message)
+    # Send data to discord webhook
+    push_to_discord(counter, message)
 
     return redirect(url_for('index'))
 
@@ -118,7 +118,7 @@ def overview():
     else:
         return redirect(url_for('index'))
 
-def send_discord(counter, message):
+def push_to_discord(counter, message):
     discord_webhook_url = os.getenv("DISCORD_WEBHOOK_URL")
 
     if discord_webhook_url:
