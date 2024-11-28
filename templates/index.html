@@ -22,7 +22,7 @@
         <h2>{{ counter }}</h2>
         <form action="/increment" method="post">
             <!-- Aangepast input veld voor bericht -->
-            <input maxlength="200" type="text" name="message" placeholder="Voer hier een bericht in">
+            <input maxlength="200" type="text" name="message" placeholder="Voer hier een bericht in" required="true">
             <button type="submit">Increment</button>
         </form>
         <form action="/overview" method="get">

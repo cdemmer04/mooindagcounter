@@ -78,16 +78,6 @@ def index():
 
 @app.route('/increment', methods=['POST'])
 def increment():
-    # # Cooldown
-    # global last_increment_time
-    # current_time = time.time()
-
-    # if current_time - last_increment_time < 2:
-    #     return redirect(url_for('index'))
-
-    # last_increment_time = current_time
-
-    # date
     date = datetime.now().date()
 
     # Get current counter and increment
@@ -96,8 +86,15 @@ def increment():
     counter += 1
 
     # Get message from form
-    message = request.form.get("message")
+    message = request.form.get("message").lower()
 
+    # Get list with forbidden words
+    with open("banned_words.txt") as f:
+        banned_words = {word.strip().lower() for word in f}
+
+    if any(word in message for word in banned_words):
+        return redirect(url_for('index'))
+    
     # Save new record to databse
     save_counter(counter, message, date)
 
