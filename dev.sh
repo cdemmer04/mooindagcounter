@@ -1,3 +1,3 @@
 #!/bin/bash
-# Quick switch to run a development environment on a seperate port
-gunicorn app:app --bind 0.0.0.0:$1
+
+gunicorn app:app --certfile=/etc/letsencrypt/live/mooindagcounter.nl/cert.pem --keyfile=/etc/letsencrypt/live/mooindagcounter.nl/privkey.pem --bind 0.0.0.0:$1
