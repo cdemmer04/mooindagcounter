@@ -47,7 +47,7 @@ def load_all_counters():
     conn = connect_db()
     cursor = conn.cursor()
 
-    query = "SELECT id, message, date FROM counts ORDER BY id DESC"
+    query = "SELECT id, message, date, client_ip FROM counts ORDER BY id DESC"
     cursor.execute(query)
 
     result = cursor.fetchall()
