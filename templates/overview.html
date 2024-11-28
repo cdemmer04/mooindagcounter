@@ -15,7 +15,6 @@
                     <th>Count</th>
                     <th>Bericht</th>
                     <th>Datum</th>
-                    <th>Locatie</th>
                 </tr>
             </thead>
             <tbody>
@@ -24,7 +23,6 @@
                     <td>{{ count }}</td>
                     <td>"{{ message }}"</td>
                     <td>{{ date.strftime('%d-%m-%Y') }}</td>
-                    <td>{{ city }}, {{ country }}</td>
                 </tr>
                 {% endfor %}
             </tbody>
