@@ -57,12 +57,12 @@ def load_all_counters():
     return result
 
 # Sla nieuwe teller en bericht op in de database
-def save_counter(counter, message, date, city, country):
+def save_counter(counter, message, date, client_ip):
     conn = connect_db()
     cursor = conn.cursor()
 
-    query = "INSERT INTO counts (id, message, date, city, country) VALUES (%s, %s, %s, %s, %s)"
-    cursor.execute(query, (counter, message, date, city, country))
+    query = "INSERT INTO counts (id, message, client_ip) VALUES (%s, %s, %s, %s)"
+    cursor.execute(query, (counter, message, date, client_ip))
     conn.commit()
 
     cursor.close()
@@ -87,18 +87,8 @@ def increment():
     else:
         client_ip = request.remote_addr
 
-    # Use external api to get location
-    try:
-        response = requests.get(f'https://ipinfo.io/{client_ip}/json')
-        location_data = response.json()
-        
-        city = location_data.get('city', 'Unknown')
-        country = location_data.get('country', 'Unknown')
-    except requests.RequestException:
-        city = country = 'Unknown'
-
     # Save new record to databse
-    save_counter(counter, message, date, city, country)
+    save_counter(counter, message, date, client_ip)
     return redirect(url_for('index'))
 
 # Route om alle records te bekijken
