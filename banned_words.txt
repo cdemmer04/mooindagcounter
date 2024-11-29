@@ -1,5 +1,16 @@
 Hitler
 Esther
+Henk
+Erik
+Sander
+Margriet
+John
+Tristan
+Melanie
+Frank
+Rogier
+Steven
+Michiel
 Waldbaan
 Kampf
 Jude
@@ -8,3 +19,5 @@ Jews
 911
 kanker
 saxion
+trein
+wouter
