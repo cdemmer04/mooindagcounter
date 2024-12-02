@@ -4,11 +4,20 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Count Overview</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='overview.css') }}?v=1.0">
+    <link rel="stylesheet" href="{{ url_for('static', filename='overview.css') }}">
+
+    <link rel="icon" type="image/png" href="/static/" sizes="96x96" />
+    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
+    <link rel="shortcut icon" href="/static/favicon.ico" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png" />
+    <meta name="apple-mobile-web-app-title" content="Mooindagcounter" />
+    <link rel="manifest" href="/site.webmanifest" />
 </head>
 <body>
     <div class="container">
         <h1>Count Overview</h1>
+        <p>Waarschuwing! Op deze webpagina bevinden zich mogelijk uitspraken die het daglicht niet kunnen verdragen. Betreden op eigen risico.</p>
+        <p>De eigenaar van deze website is en was in geen enkele vorm aansprakelijk hiervoor.</p>
         <table>
             <thead>
                 <tr>
@@ -18,7 +27,7 @@
                 </tr>
             </thead>
             <tbody>
-                {% for count, message, date, client_ip in data %}
+                {% for count, message, date in data %}
                 <tr>
                     <td>{{ count }}</td>
                     <td>"{{ message }}"</td>

@@ -1,20 +1,18 @@
-from flask import Flask, render_template, request, redirect, url_for
+from flask import Flask, render_template, request, redirect, url_for, send_from_directory, jsonify
 from datetime import datetime 
+import time
 import mariadb
 import os
-from dotenv import load_dotenv
 import requests
+from dotenv import load_dotenv
 
 app = Flask(__name__)
 
 # Load environment variables
 load_dotenv("./.env")
 
-@app.route('/')
-def index():
-    data = load_counter()
-    counter = data[0]
-    return render_template('index.html', counter=counter)
+# Timestamp for last increment
+last_increment_time = 0
 
 def connect_db():
     conn = mariadb.connect(
@@ -43,11 +41,11 @@ def load_counter():
         return result
 
 # Laad alle tellers en berichten uit de database
-def load_all_counters():
+def get_all_counters():
     conn = connect_db()
     cursor = conn.cursor()
 
-    query = "SELECT id, message, date, client_ip FROM counts ORDER BY id DESC"
+    query = "SELECT id, message, date FROM counts ORDER BY id DESC"
     cursor.execute(query)
 
     result = cursor.fetchall()
@@ -56,17 +54,41 @@ def load_all_counters():
 
     return result
 
-# Sla nieuwe teller en bericht op in de database
-def save_counter(counter, message, date, client_ip):
+# Get specific counter
+def get_counter(id):
     conn = connect_db()
     cursor = conn.cursor()
 
-    query = "INSERT INTO counts (id, message, client_ip) VALUES (%s, %s, %s, %s)"
-    cursor.execute(query, (counter, message, date, client_ip))
+    query = "SELECT * FROM counts WHERE id = %s"
+    cursor.execute(query, (id,))
+
+    result = cursor.fetchone()
+    cursor.close()
+    conn.close()
+
+    return result
+
+# Sla nieuwe teller en bericht op in de database
+def save_counter(counter, message, date):
+    conn = connect_db()
+    cursor = conn.cursor()
+
+    query = "INSERT INTO counts (id, message, date) VALUES (%s, %s, %s)"
+    cursor.execute(query, (counter, message, date))
     conn.commit()
 
     cursor.close()
     conn.close()
+
+@app.route('/robots.txt')
+def robots_txt():
+    return send_from_directory('static', 'robots.txt', mimetype='text/plain')
+
+@app.route('/')
+def index():
+    data = load_counter()
+    counter = data[0]
+    return render_template('index.html', counter=counter)
 
 @app.route('/increment', methods=['POST'])
 def increment():
@@ -78,30 +100,82 @@ def increment():
     counter += 1
 
     # Get message from form
-    message = request.form.get("message")
+    message = request.form.get("message").lower()
 
-        # Get client IP adress
-    client_ip = request.headers.get('X-Forwarded-For')
-    if client_ip:
-        client_ip = client_ip.split(',')[0]
-    else:
-        client_ip = request.remote_addr
+    # Get list with forbidden words
+    with open("banned_words.txt") as f:
+        banned_words = {word.strip().lower() for word in f}
 
+    if any(word in message for word in banned_words):
+        return redirect(url_for('index'))
+    
     # Save new record to databse
-    save_counter(counter, message, date, client_ip)
+    save_counter(counter, message, date)
+
+    # Send data to discord webhook
+    push_to_discord(counter, message)
+
     return redirect(url_for('index'))
 
-# Route om alle records te bekijken
+# Route om alle counts en berichten te bekijken
 @app.route('/overview')
 def overview():
     # Get all data
-    data = load_all_counters()  
+    data = get_all_counters()  
 
     # Only show overview if it contains data
     if data:
         return render_template('overview.html', data=data)
     else:
         return redirect(url_for('index'))
+
+def push_to_discord(counter, message):
+    discord_webhook_url = os.getenv("DISCORD_WEBHOOK_URL")
+
+    if discord_webhook_url:
+        discord_data = {
+            "content": f"Counter: {counter}\n{message.capitalize()}"
+        }
+        requests.post(discord_webhook_url, json=discord_data)
+
+
+@app.route('/api/counts', methods=['GET'])
+def api_counts():
+    counters = get_all_counters()
+    
+    formatted_counters = [
+        {
+            "count": counter[0],
+            "message": counter[1],
+            "date": counter[2]
+        }
+        for counter in counters
+    ]
+    return jsonify(formatted_counters)
+
+@app.route('/api/counts/<id>', methods=["GET"])
+def api_counts_id(id):
+    print(get_counter(1))
+    return jsonify(get_counter(id))
+
+@app.route('/api/delete/<id>', methods=["DELETE"])
+def api_remove(id):
+    conn = connect_db()
+    cursor = conn.cursor()
+
+    # Query to search record
+    query = "DELETE FROM counts WHERE id = %s"
+    cursor.execute(query, (id,))
+
+    query = "ALTER TABLE counts AUTO_INCREMENT = 1"
+    cursor.execute(query)
+
+    conn.commit()
+
+    cursor.close()
+    conn.close()
+
+    return jsonify({"message": f"Record with id {id} deleted"}), 200
 
 if __name__ == '__main__':
     app.run(debug=True)
