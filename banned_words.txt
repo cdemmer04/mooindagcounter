@@ -10,7 +10,7 @@ Melanie
 Frank
 Rogier
 Steven
-Michiel
+Michel
 Waldbaan
 Kampf
 Jude
@@ -21,3 +21,4 @@ kanker
 saxion
 trein
 wouter
+Chiel

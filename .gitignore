@@ -1,4 +1,5 @@
 *.sh
+banned_words.txt
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
