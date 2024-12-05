@@ -102,7 +102,8 @@ def increment():
     # Get message from form
     message = request.form.get("message").lower()
 
-    client_ip = request.remote_addr
+    # Collect client ip
+    client_ip = request.headers.get('X-Forwarded-For')
 
     # Get list with forbidden words
     with open("banned_words.txt") as f:
