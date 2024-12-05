@@ -24,6 +24,9 @@ body {
     margin: 20px;
     border-radius: 10px;
     box-shadow: 0px 4px 15px rgba(0, 0, 0, 0.1);
+    display: block;
+    overflow-x: auto;
+    white-space: nowrap;
 }
 h1 {
     margin-bottom: 20px;
@@ -57,4 +60,14 @@ a:hover {
 p {
     color: red;
     font-style: oblique;
+}
+
+@media screen and (max-width: 600px) {
+    .container {
+        padding: 10px;
+        margin: 10px;
+    }
+    table, th, td {
+        font-size: 14px;
+    }
 }
