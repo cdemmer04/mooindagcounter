@@ -69,12 +69,12 @@ def get_counter(id):
     return result
 
 # Sla nieuwe teller en bericht op in de database
-def save_counter(counter, message, date):
+def save_counter(counter, message, date, client_ip):
     conn = connect_db()
     cursor = conn.cursor()
 
-    query = "INSERT INTO counts (id, message, date) VALUES (%s, %s, %s)"
-    cursor.execute(query, (counter, message, date))
+    query = "INSERT INTO counts (id, message, date, client_ip) VALUES (%s, %s, %s, %s)"
+    cursor.execute(query, (counter, message, date, client_ip))
     conn.commit()
 
     cursor.close()
@@ -102,6 +102,9 @@ def increment():
     # Get message from form
     message = request.form.get("message").lower()
 
+    # Collect client ip
+    client_ip = request.headers.get('X-Forwarded-For')
+
     # Get list with forbidden words
     with open("banned_words.txt") as f:
         banned_words = {word.strip().lower() for word in f}
@@ -110,10 +113,7 @@ def increment():
         return redirect(url_for('index'))
     
     # Save new record to databse
-    save_counter(counter, message, date)
-
-    # Send data to discord webhook
-    push_to_discord(counter, message)
+    save_counter(counter, message, date, client_ip)
 
     return redirect(url_for('index'))
 
@@ -128,16 +128,6 @@ def overview():
         return render_template('overview.html', data=data)
     else:
         return redirect(url_for('index'))
-
-def push_to_discord(counter, message):
-    discord_webhook_url = os.getenv("DISCORD_WEBHOOK_URL")
-
-    if discord_webhook_url:
-        discord_data = {
-            "content": f"Counter: {counter}\n{message.capitalize()}"
-        }
-        requests.post(discord_webhook_url, json=discord_data)
-
 
 @app.route('/api/counts', methods=['GET'])
 def api_counts():
