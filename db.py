@@ -1,6 +1,7 @@
 import os
 from dotenv import load_dotenv
 import mariadb
+from datetime import datetime 
 
 # IM;ort environment variables from file
 load_dotenv("./.env")  
@@ -32,4 +33,11 @@ def get_counter(id):
 
     return result
 
+def get_date():
+    timestamp = datetime.now().replace(microsecond=0)#.strftime('%d-%m-%Y %H:%M')
 
+    return timestamp
+
+
+print(get_date())
+          

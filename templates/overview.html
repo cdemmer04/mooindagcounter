@@ -24,14 +24,16 @@
                     <th>Count</th>
                     <th>Bericht</th>
                     <th>Datum</th>
+                    <th>Tijd</th>
                 </tr>
             </thead>
             <tbody>
-                {% for count, message, date in data %}
+                {% for count, message, timestamp in data %}
                 <tr>
                     <td>{{ count }}</td>
                     <td>"{{ message }}"</td>
-                    <td>{{ date.strftime('%d-%m-%Y') }}</td>
+                    <td>{{ timestamp.strftime('%d-%m-%Y') }}</td>
+                    <td>{{ timestamp.strftime('%H:%M') }}</td>
                 </tr>
                 {% endfor %}
             </tbody>

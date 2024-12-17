@@ -45,7 +45,7 @@ def get_all_counters():
     conn = connect_db()
     cursor = conn.cursor()
 
-    query = "SELECT id, message, date FROM counts ORDER BY id DESC"
+    query = "SELECT id, message, timestamp FROM counts ORDER BY id DESC"
     cursor.execute(query)
 
     result = cursor.fetchall()
@@ -69,12 +69,12 @@ def get_counter(id):
     return result
 
 # Sla nieuwe teller en bericht op in de database
-def save_counter(counter, message, date, client_ip):
+def save_counter(counter, message, timestamp, client_ip):
     conn = connect_db()
     cursor = conn.cursor()
 
-    query = "INSERT INTO counts (id, message, date, client_ip) VALUES (%s, %s, %s, %s)"
-    cursor.execute(query, (counter, message, date, client_ip))
+    query = "INSERT INTO counts (id, message, timestamp, client_ip) VALUES (%s, %s, %s, %s)"
+    cursor.execute(query, (counter, message, timestamp, client_ip))
     conn.commit()
 
     cursor.close()
@@ -92,7 +92,7 @@ def index():
 
 @app.route('/increment', methods=['POST'])
 def increment():
-    date = datetime.now().date()
+    timestamp = datetime.now().replace(microsecond=0)
 
     # Get current counter and increment
     data = load_counter()
@@ -103,7 +103,8 @@ def increment():
     message = request.form.get("message").lower()
 
     # Collect client ip
-    client_ip = request.headers.get('X-Forwarded-For')
+    if not (client_ip := request.headers.get('X-Forwarded-For')):
+        client_ip = request.remote_addr
 
     # Get list with forbidden words
     with open("banned_words.txt") as f:
@@ -113,7 +114,10 @@ def increment():
         return redirect(url_for('index'))
     
     # Save new record to databse
-    save_counter(counter, message, date, client_ip)
+    save_counter(counter, message, timestamp, client_ip)
+
+    # Push message to discord
+    push_to_discord(counter, message, timestamp)
 
     return redirect(url_for('index'))
 
@@ -128,6 +132,18 @@ def overview():
         return render_template('overview.html', data=data)
     else:
         return redirect(url_for('index'))
+
+def push_to_discord(counter, message, timestamp):
+    discord_webhook_url = os.getenv("DISCORD_WEBHOOK_URL")
+
+    if discord_webhook_url:
+        discord_data = {
+            "content": f"Counter: {counter}\n"
+               f"Datum: {timestamp.strftime('%d-%m-%Y')}\n"
+               f"Tijd: {timestamp.strftime('%H:%M')}\n"
+               f"{message.capitalize()}"
+        }
+        requests.post(discord_webhook_url, json=discord_data)
 
 @app.route('/api/counts', methods=['GET'])
 def api_counts():
