@@ -25,8 +25,8 @@ body {
     border-radius: 10px;
     box-shadow: 0px 4px 15px rgba(0, 0, 0, 0.1);
     display: block;
-    overflow-x: auto;
-    white-space: nowrap;
+    overflow-x: hidden;
+    white-space: inherit;
 }
 h1 {
     margin-bottom: 20px;
@@ -38,7 +38,7 @@ table {
     margin-bottom: 20px;
 }
 th, td {
-    padding: 10px;
+    padding: 5px;
     border: 1px solid #ddd;
     text-align: left;
 }
@@ -62,12 +62,23 @@ p {
     font-style: oblique;
 }
 
-@media screen and (max-width: 600px) {
+@media screen and (max-width: 900px) {
     .container {
         padding: 10px;
         margin: 10px;
+        white-space: unset;
+        overflow-x: auto; /* Maak horizontaal scrollen mogelijk */
     }
     table, th, td {
         font-size: 14px;
     }
+    h1 {
+        position: sticky; /* Sticky gedrag alleen binnen de media query */
+        top: 0; /* Zorg ervoor dat de header bovenaan blijft */
+        background-color: #fff; /* Geef een achtergrondkleur om tekst leesbaar te houden */
+        z-index: 100; /* Plaats boven andere elementen */
+        padding: 10px;
+        border-bottom: 1px solid #ddd; /* Optionele stijl om de header te onderscheiden */
+    }
 }
+
