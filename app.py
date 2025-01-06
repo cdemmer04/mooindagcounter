@@ -6,24 +6,61 @@ import os
 import requests
 from dotenv import load_dotenv
 
+# Global Variables
 app = Flask(__name__)
 
-# Load environment variables
 load_dotenv("./.env")
 
-# Timestamp for last increment
-last_increment_time = 0
+# Help Functions
+def push_to_discord(counter, message, timestamp):
+    discord_webhook_url = os.getenv("DISCORD_WEBHOOK_URL")
 
-def connect_db():
-    conn = mariadb.connect(
-        host="localhost",
-        user=os.getenv("DB_USER"),
-        password=os.getenv("DB_PASSWORD"),
-        database=os.getenv("DB_NAME")
-    )
-    return conn
+    if discord_webhook_url:
+        discord_data = {
+            "content": f"Counter: {counter}\n"
+               f"Datum: {timestamp.strftime('%d-%m-%Y')}\n"
+               f"Tijd: {timestamp.strftime('%H:%M')}\n"
+               f"{message.capitalize()}"
+        }
+        requests.post(discord_webhook_url, json=discord_data)
 
-# Laad de meest recente teller en bericht uit de database
+def save_counter(counter, message, timestamp, client_ip):
+    conn = connect_db()
+    cursor = conn.cursor()
+
+    query = "INSERT INTO counts (id, message, timestamp, client_ip) VALUES (%s, %s, %s, %s)"
+    cursor.execute(query, (counter, message, timestamp, client_ip))
+    conn.commit()
+
+    cursor.close()
+    conn.close()
+
+def get_counter(id):
+    conn = connect_db()
+    cursor = conn.cursor()
+
+    query = "SELECT * FROM counts WHERE id = %s"
+    cursor.execute(query, (id,))
+
+    result = cursor.fetchone()
+    cursor.close()
+    conn.close()
+
+    return result
+
+def get_all_counters():
+    conn = connect_db()
+    cursor = conn.cursor()
+
+    query = "SELECT id, message, timestamp FROM counts ORDER BY id DESC"
+    cursor.execute(query)
+
+    result = cursor.fetchall()
+    cursor.close()
+    conn.close()
+
+    return result
+
 def load_counter():
     conn = connect_db()
     cursor = conn.cursor()
@@ -39,56 +76,36 @@ def load_counter():
         return (0, "Eerste count")
     else:
         return result
+    
+def connect_db():
+    conn = mariadb.connect(
+        host="localhost",
+        user=os.getenv("DB_USER"),
+        password=os.getenv("DB_PASSWORD"),
+        database=os.getenv("DB_NAME")
+    )
+    return conn
 
-# Laad alle tellers en berichten uit de database
-def get_all_counters():
-    conn = connect_db()
-    cursor = conn.cursor()
+# def is_message_unique(message):
+#     # Connect to database
+#     conn = connect_db()
+#     cursor = conn.cursor()
 
-    query = "SELECT id, message, timestamp FROM counts ORDER BY id DESC"
-    cursor.execute(query)
+#     # Get all messages
+    
 
-    result = cursor.fetchall()
-    cursor.close()
-    conn.close()
 
-    return result
+# Route Functions
+@app.route('/overview')
+def overview():
+    # Get all data
+    data = get_all_counters()  
 
-# Get specific counter
-def get_counter(id):
-    conn = connect_db()
-    cursor = conn.cursor()
-
-    query = "SELECT * FROM counts WHERE id = %s"
-    cursor.execute(query, (id,))
-
-    result = cursor.fetchone()
-    cursor.close()
-    conn.close()
-
-    return result
-
-# Sla nieuwe teller en bericht op in de database
-def save_counter(counter, message, timestamp, client_ip):
-    conn = connect_db()
-    cursor = conn.cursor()
-
-    query = "INSERT INTO counts (id, message, timestamp, client_ip) VALUES (%s, %s, %s, %s)"
-    cursor.execute(query, (counter, message, timestamp, client_ip))
-    conn.commit()
-
-    cursor.close()
-    conn.close()
-
-@app.route('/robots.txt')
-def robots_txt():
-    return send_from_directory('static', 'robots.txt', mimetype='text/plain')
-
-@app.route('/')
-def index():
-    data = load_counter()
-    counter = data[0]
-    return render_template('index.html', counter=counter)
+    # Only show overview if it contains data
+    if data:
+        return render_template('overview.html', data=data)
+    else:
+        return redirect(url_for('index'))
 
 @app.route('/increment', methods=['POST'])
 def increment():
@@ -102,7 +119,11 @@ def increment():
     # Get message from form
     message = request.form.get("message").lower()
 
-    
+    # Check if message is unique
+    # if is_message_unique(message):
+        
+    # else:
+
 
     # Collect client ip
     if not (client_ip := request.headers.get('X-Forwarded-For')):
@@ -123,30 +144,17 @@ def increment():
 
     return redirect(url_for('index'))
 
-# Route om alle counts en berichten te bekijken
-@app.route('/overview')
-def overview():
-    # Get all data
-    data = get_all_counters()  
+@app.route('/robots.txt')
+def robots_txt():
+    return send_from_directory('static', 'robots.txt', mimetype='text/plain')
 
-    # Only show overview if it contains data
-    if data:
-        return render_template('overview.html', data=data)
-    else:
-        return redirect(url_for('index'))
+@app.route('/')
+def index():
+    data = load_counter()
+    counter = data[0]
+    return render_template('index.html', counter=counter)
 
-def push_to_discord(counter, message, timestamp):
-    discord_webhook_url = os.getenv("DISCORD_WEBHOOK_URL")
-
-    if discord_webhook_url:
-        discord_data = {
-            "content": f"Counter: {counter}\n"
-               f"Datum: {timestamp.strftime('%d-%m-%Y')}\n"
-               f"Tijd: {timestamp.strftime('%H:%M')}\n"
-               f"{message.capitalize()}"
-        }
-        requests.post(discord_webhook_url, json=discord_data)
-
+# API Methods
 @app.route('/api/counts', methods=['GET'])
 def api_counts():
     counters = get_all_counters()
