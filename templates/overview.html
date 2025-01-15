@@ -6,12 +6,12 @@
     <title>Count Overview</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='overview.css') }}">
 
-    <link rel="icon" type="image/png" href="/static/" sizes="96x96" />
-    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-    <link rel="shortcut icon" href="/static/favicon.ico" />
-    <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png" />
+    <link rel="icon" type="image/png" href="/static/images" sizes="96x96" />
+    <link rel="icon" type="image/svg+xml" href="/static/images/favicon.svg" />
+    <link rel="shortcut icon" href="/static/images/favicon.ico" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/static/images/apple-touch-icon.png" />
     <meta name="apple-mobile-web-app-title" content="Mooindagcounter" />
-    <link rel="manifest" href="/site.webmanifest" />
+    <link rel="manifest" href="/static/site.webmanifest" />
 </head>
 <body>
     <div class="container">
@@ -24,14 +24,16 @@
                     <th>Count</th>
                     <th>Bericht</th>
                     <th>Datum</th>
+                    <th>Tijd</th>
                 </tr>
             </thead>
             <tbody>
-                {% for count, message, date in data %}
+                {% for count, message, timestamp in data %}
                 <tr>
                     <td>{{ count }}</td>
                     <td>"{{ message }}"</td>
-                    <td>{{ date.strftime('%d-%m-%Y') }}</td>
+                    <td>{{ timestamp.strftime('%d-%m-%Y') }}</td>
+                    <td>{{ timestamp.strftime('%H:%M') }}</td>
                 </tr>
                 {% endfor %}
             </tbody>

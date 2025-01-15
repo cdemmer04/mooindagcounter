@@ -6,55 +6,35 @@ import os
 import requests
 from dotenv import load_dotenv
 
+# Global Variables
 app = Flask(__name__)
 
-# Load environment variables
 load_dotenv("./.env")
 
-# Timestamp for last increment
-last_increment_time = 0
+# Help Functions
+def push_to_discord(counter, message, timestamp):
+    discord_webhook_url = os.getenv("DISCORD_WEBHOOK_URL")
 
-def connect_db():
-    conn = mariadb.connect(
-        host="localhost",
-        user=os.getenv("DB_USER"),
-        password=os.getenv("DB_PASSWORD"),
-        database=os.getenv("DB_NAME")
-    )
-    return conn
+    if discord_webhook_url:
+        discord_data = {
+            "content": f"Counter: {counter}\n"
+               f"Datum: {timestamp.strftime('%d-%m-%Y')}\n"
+               f"Tijd: {timestamp.strftime('%H:%M')}\n"
+               f"{message.capitalize()}"
+        }
+        requests.post(discord_webhook_url, json=discord_data)
 
-# Laad de meest recente teller en bericht uit de database
-def load_counter():
+def save_counter(counter, message, timestamp, client_ip):
     conn = connect_db()
     cursor = conn.cursor()
 
-    query = "SELECT id, message FROM counts ORDER BY id DESC LIMIT 1"
-    cursor.execute(query)
+    query = "INSERT INTO counts (id, message, timestamp, client_ip) VALUES (%s, %s, %s, %s)"
+    cursor.execute(query, (counter, message, timestamp, client_ip))
+    conn.commit()
 
-    result = cursor.fetchone()
     cursor.close()
     conn.close()
 
-    if not result:
-        return (0, "Eerste count")
-    else:
-        return result
-
-# Laad alle tellers en berichten uit de database
-def get_all_counters():
-    conn = connect_db()
-    cursor = conn.cursor()
-
-    query = "SELECT id, message, date FROM counts ORDER BY id DESC"
-    cursor.execute(query)
-
-    result = cursor.fetchall()
-    cursor.close()
-    conn.close()
-
-    return result
-
-# Get specific counter
 def get_counter(id):
     conn = connect_db()
     cursor = conn.cursor()
@@ -68,56 +48,59 @@ def get_counter(id):
 
     return result
 
-# Sla nieuwe teller en bericht op in de database
-def save_counter(counter, message, date, client_ip):
+def get_all_counters():
     conn = connect_db()
     cursor = conn.cursor()
 
-    query = "INSERT INTO counts (id, message, date, client_ip) VALUES (%s, %s, %s, %s)"
-    cursor.execute(query, (counter, message, date, client_ip))
-    conn.commit()
+    query = "SELECT id, message, timestamp FROM counts ORDER BY id DESC"
+    cursor.execute(query)
 
+    result = cursor.fetchall()
     cursor.close()
     conn.close()
 
-@app.route('/robots.txt')
-def robots_txt():
-    return send_from_directory('static', 'robots.txt', mimetype='text/plain')
+    return result
 
-@app.route('/')
-def index():
-    data = load_counter()
-    counter = data[0]
-    return render_template('index.html', counter=counter)
+def get_latest_counter():
+    conn = connect_db()
+    cursor = conn.cursor()
 
-@app.route('/increment', methods=['POST'])
-def increment():
-    date = datetime.now().date()
+    query = "SELECT id FROM counts ORDER BY id DESC LIMIT 1"
+    cursor.execute(query)
 
-    # Get current counter and increment
-    data = load_counter()
-    counter = data[0]
-    counter += 1
+    result = cursor.fetchone()
+    cursor.close()
+    conn.close()
 
-    # Get message from form
-    message = request.form.get("message").lower()
-
-    # Collect client ip
-    client_ip = request.headers.get('X-Forwarded-For')
-
-    # Get list with forbidden words
-    with open("banned_words.txt") as f:
-        banned_words = {word.strip().lower() for word in f}
-
-    if any(word in message for word in banned_words):
-        return redirect(url_for('index'))
+    if not result:
+        return 0
+    else:
+        return result[0]
     
-    # Save new record to databse
-    save_counter(counter, message, date, client_ip)
+def connect_db():
+    conn = mariadb.connect(
+        host="localhost",
+        user=os.getenv("DB_USER"),
+        password=os.getenv("DB_PASSWORD"),
+        database=os.getenv("DB_NAME")
+    )
+    return conn
 
-    return redirect(url_for('index'))
+def message_exists(message):
+    # Connect to database
+    conn = connect_db()
+    cursor = conn.cursor()
 
-# Route om alle counts en berichten te bekijken
+    # Check if message already exists
+    query = "SELECT message FROM counts WHERE message = ? LIMIT 1"
+    cursor.execute(query, (message,))
+
+    result = cursor.fetchone()
+    
+    # Return if message exists
+    return result is not None
+    
+# Route Functions
 @app.route('/overview')
 def overview():
     # Get all data
@@ -129,6 +112,54 @@ def overview():
     else:
         return redirect(url_for('index'))
 
+@app.route('/increment', methods=['POST'])
+def increment():
+    timestamp = datetime.now().replace(microsecond=0)
+
+    # Get current counter and increment
+    counter = get_latest_counter()
+    counter += 1
+
+    # Get message from form
+    message = request.form.get("message").lower()
+
+    # Check if message is unique
+    if message_exists(message):
+        return render_template('index.html', counter=counter, error_message=True)
+
+    # Collect client ip
+    if not (client_ip := request.headers.get('X-Forwarded-For')):
+        client_ip = request.remote_addr
+
+    # Get list with forbidden words
+    with open("banned_words.txt") as f:
+        banned_words = {word.strip().lower() for word in f}
+
+    if any(word in message for word in banned_words):
+        return render_template('index.html', counter=counter, banned_word=True)
+    
+    # Save new record to databse
+    save_counter(counter, message, timestamp, client_ip)
+
+    # Push message to discord
+    push_to_discord(counter, message, timestamp)
+
+    return redirect(url_for('index'))
+
+@app.route('/robots.txt')
+def robots_txt():
+    return send_from_directory('static', 'robots.txt', mimetype='text/plain')
+
+@app.route('/')
+def index():
+    counter = get_latest_counter()
+    return render_template('index.html', counter=counter)
+
+@app.route("/surprise")
+def surprise():
+    return render_template('surprise.html')
+
+# API Methods
 @app.route('/api/counts', methods=['GET'])
 def api_counts():
     counters = get_all_counters()
@@ -167,5 +198,11 @@ def api_remove(id):
 
     return jsonify({"message": f"Record with id {id} deleted"}), 200
 
+# Easter egg
+@app.route('/api/delete/all', methods=["GET"])
+def meme():
+    return render_template('meme.html')
+
 if __name__ == '__main__':
     app.run(debug=True)
+    

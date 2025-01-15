@@ -6,6 +6,7 @@
     margin: 0;
     padding: 0;
     box-sizing: border-box;
+    /* cursor: url('./images/cursor.png'), auto; */
 }
 
 body {
@@ -19,6 +20,7 @@ body {
     background-size: cover;
     background-repeat: no-repeat;
     background-position: center;
+
 }
 
 .container {
@@ -54,7 +56,7 @@ button {
     border: none;
     border-radius: 5px;
     font-size: 1.2em;
-    cursor: pointer;
+    /* cursor: pointer; */
     transition: background-color 0.3s ease;
 }
 
@@ -88,3 +90,6 @@ input[type="text"]:focus, textarea:focus {
     margin-top: 30px; 
 }
 
+#error_message {
+    color: red;
+}

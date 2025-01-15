@@ -10,7 +10,7 @@ body {
     display: flex;
     justify-content: center;
     align-items: center;
-    overflow-y: scroll;
+    overflow-y: hidden;
     background-attachment: fixed;
     background-image: url("images/background.avif"); /* Verander dit pad naar jouw afbeelding */
     background-size: cover;
@@ -24,8 +24,9 @@ body {
     margin: 20px;
     border-radius: 10px;
     box-shadow: 0px 4px 15px rgba(0, 0, 0, 0.1);
-    max-width: 800px;
-    width: 100%;
+    display: block;
+    overflow-x: hidden;
+    white-space: inherit;
 }
 h1 {
     margin-bottom: 20px;
@@ -37,7 +38,7 @@ table {
     margin-bottom: 20px;
 }
 th, td {
-    padding: 10px;
+    padding: 5px;
     border: 1px solid #ddd;
     text-align: left;
 }
@@ -50,7 +51,7 @@ td {
 }
 a {
     text-decoration: none;
-    color: #4CAF50;
+    color: hsl(122, 39%, 49%);
 }
 a:hover {
     text-decoration: underline;
@@ -60,3 +61,16 @@ p {
     color: red;
     font-style: oblique;
 }
+
+@media screen and (max-width: 900px) {
+    .container {
+        padding: 10px;
+        margin: 10px;
+        white-space: unset;
+        overflow-x: auto; /* Maak horizontaal scrollen mogelijk */
+    }
+    table, th, td {
+        font-size: 14px;
+    }
+}
+
