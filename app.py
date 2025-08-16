@@ -127,6 +127,9 @@ def increment():
     date = timestamp.date()
     time = timestamp.time().replace(microsecond=0)
 
+    # Get latest counter
+    counter = get_latest_counter()
+
     # Get message from form
     message = request.form.get("message").lower()
 
@@ -134,8 +137,7 @@ def increment():
     if message_exists(message):
         return render_template('index.html', counter=counter, error_message=True)
     
-    # Get current counter and increment
-    counter = get_latest_counter()
+    # Increment counter only if preconditions are met
     counter += 1
 
     # Collect client ip
