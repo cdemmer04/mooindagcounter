@@ -25,6 +25,7 @@
                     <th>Bericht</th>
                     <th>Datum</th>
                     <th>Tijd</th>
+                    <th>Opties</th>
                 </tr>
             </thead>
             <tbody>
@@ -34,11 +35,18 @@
                     <td>"{{ row['message'] }}"</td>
                     <td>{{ row['date'] }}</td>
                     <td>{{ row['time'] }}</td>
+                    <td>
+                        <form action="{{ url_for('api_remove', id=row['id']) }}" method="POST">
+                            <button type="submit" class="tableButton">Verwijder</button>
+                        </form>
+                    </td>
+                    <!-- <td><a class="tableButton" href="{{url_for('api_remove', id=row['id'])}}">Test</a></td> -->
+                    <!-- <td><a class="tableButton" href="{{url_for('remove_item', id=row['id'])}}">Test</a></td> -->
                 </tr>
                 {% endfor %}
             </tbody>
         </table>
-        <a href="{{ url_for('index') }}">Go back to counter</a>
+        <a class="button" href="{{ url_for('index') }}">Go back to counter</a>
     </div>
 </body>
 </html>

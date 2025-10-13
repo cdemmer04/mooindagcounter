@@ -68,7 +68,6 @@ def get_all_counters():
         return None
 
 def get_latest_counter():
-
     if (conn := connect_db()):
         cursor = conn.cursor()
 
@@ -166,14 +165,26 @@ def increment():
 
     return redirect(url_for('index'))
 
+# Remove row from overview
+@app.route('/remove/<id>', methods=['GET'])
+def remove_item(id):
+    print(id)
+    return redirect(url_for('overview'))
+
+# Robots.txt file
 @app.route('/robots.txt')
 def robots_txt():
     return send_from_directory('static', 'robots.txt', mimetype='text/plain')
 
+# Index route functions
 @app.route('/')
 def index():
     counter = get_latest_counter()
     return render_template('index.html', counter=counter)
+
+@app.route('/index')
+def index_redirect():
+    return redirect(url_for('index'))
 
 # API Methods
 @app.route('/api/counts', methods=['GET'])
@@ -190,34 +201,41 @@ def api_counts():
     ]
     return jsonify(formatted_counters)
 
-@app.route('/api/counts/<id>', methods=["GET"])
-def api_counts_id(id):
-    print(get_counter(1))
-    return jsonify(get_counter(id))
+# Old API Function
+# @app.route('/api/counts/<id>', methods=["GET"])
+# def api_counts_id(id):
+    
 
-@app.route('/api/delete/<id>', methods=["DELETE"])
+@app.route('/api/counts/<id>', methods=["GET", "DELETE", "POST"])
 def api_remove(id):
-    conn = connect_db()
-    cursor = conn.cursor()
 
-    # Query to search record
-    query = "DELETE FROM counts WHERE id = %s"
-    cursor.execute(query, (id,))
+    if request.method == 'GET':
+        if counter := get_counter(id):
+            return jsonify(get_counter(id))
+        else:
+            return "There are no counters in the database or the database is not connected!"
+    else:
+        conn = connect_db()
+        cursor = conn.cursor()
 
-    query = "ALTER TABLE counts AUTO_INCREMENT = 1"
-    cursor.execute(query)
+        # Query to search record
+        query = "DELETE FROM counts WHERE id = %s"
+        cursor.execute(query, (id,))
 
-    conn.commit()
+        query = "ALTER TABLE counts AUTO_INCREMENT = 1"
+        cursor.execute(query)
 
-    cursor.close()
-    conn.close()
+        conn.commit()
 
-    return jsonify({"message": f"Record with id {id} deleted"}), 200
+        cursor.close()
+        conn.close()
 
-# Easter egg
-@app.route('/api/delete/all', methods=["GET"])
-def meme():
-    return render_template('meme.html')
+        if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+            # Als het een AJAX-call is → JSON
+            return jsonify({"message": f"Record {id} deleted"}), 200
+        else:
+            # Anders redirect
+            return redirect(url_for("overview"))
 
 if __name__ == '__main__':
     app.run(debug=True, host="0.0.0.0", port=80)
