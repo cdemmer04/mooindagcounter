@@ -1,4 +1,4 @@
-# Mooindagcounter — Self-hosted
+# Mooindagcounter --- Self-hosted
 
 Flask app met MariaDB, draait via Docker Compose.
 
