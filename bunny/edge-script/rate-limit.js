@@ -13,7 +13,7 @@
  * For strict global rate limiting, replace this with a shared backend call.
  */
 
-import * as BunnySDK from "https://esm.sh/@bunny.net/edgescript-sdk@0.10.0";
+import * as BunnySDK from "https://esm.sh/@bunny.net/edgescript-sdk@0.12.1";
 
 const RATE_LIMIT_WINDOW_MS = 60_000; // 1 minute
 const RATE_LIMIT_MAX = 5;            // max requests per window per IP

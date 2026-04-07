@@ -1,7 +1,8 @@
 from flask import Flask, render_template, request, redirect, url_for, send_from_directory, jsonify
-from datetime import datetime 
+from datetime import datetime
 import time
-import mariadb
+import pymysql
+import pymysql.cursors
 import os
 import requests
 from dotenv import load_dotenv
@@ -49,12 +50,10 @@ def get_counter(id):
     return result
 
 def get_all_counters():
-    # Attempt to connect to DB
     conn = connect_db()
 
-    # Only run query and return results if the connection is successfull
     if conn:
-        cursor = conn.cursor(dictionary=True)
+        cursor = conn.cursor(pymysql.cursors.DictCursor)
         query = "SELECT id, message, date, time FROM counts ORDER BY id DESC"
         cursor.execute(query)
 
@@ -64,7 +63,6 @@ def get_all_counters():
 
         return result
     else:
-        # If the initial connection with the DB is unsuccessfull, return nothing
         return None
 
 def get_latest_counter():
@@ -84,42 +82,39 @@ def get_latest_counter():
             return result[0]
     else:
         return "Database not connected!"
-    
+
 def connect_db():
     try:
-        return mariadb.connect(
-        host=os.getenv("DB_HOST"),
-        user=os.getenv("DB_USER"),
-        password=os.getenv("DB_PASSWORD"),
-        database=os.getenv("DB_NAME")
-        
+        return pymysql.connect(
+            host=os.getenv("DB_HOST"),
+            user=os.getenv("DB_USER"),
+            password=os.getenv("DB_PASSWORD"),
+            database=os.getenv("DB_NAME"),
+            port=int(os.getenv("DB_PORT", 3306)),
+            autocommit=False,
         )
-    except mariadb.Error as e:
-        # Log database error
+    except pymysql.Error as e:
         print(f"Fout bij het verbinden met de database: {e}")
         return None
 
 def message_exists(message):
-    # Connect to database
     conn = connect_db()
     cursor = conn.cursor()
 
-    # Check if message already exists
-    query = "SELECT message FROM counts WHERE message = ? LIMIT 1"
+    query = "SELECT message FROM counts WHERE message = %s LIMIT 1"
     cursor.execute(query, (message,))
 
     result = cursor.fetchone()
-    
-    # Return if message exists
+    cursor.close()
+    conn.close()
+
     return result is not None
-    
+
 # Route Functions
 @app.route('/overview')
 def overview():
-    # Get all data
-    data = get_all_counters()  
+    data = get_all_counters()
 
-    # Only show overview if it contains data
     if data:
         return render_template('overview.html', data=data)
     else:
@@ -127,56 +122,37 @@ def overview():
 
 @app.route('/increment', methods=['POST'])
 def increment():
-    # Gather timestamp information
     timestamp = datetime.now()
     date = timestamp.date()
     time = timestamp.time().replace(microsecond=0)
 
-    # Get latest counter
     counter = get_latest_counter()
 
-    # Get message from form
     message = request.form.get("message").lower()
 
-    # Check if message is unique
     if message_exists(message):
         return render_template('index.html', counter=counter, error_message=True)
-    
-    # Increment counter only if preconditions are met
+
     counter += 1
 
-    # Collect client ip
     if not (client_ip := request.headers.get('X-Forwarded-For')):
         client_ip = request.remote_addr
 
-    # Get list with forbidden words
-    #TODO Add this
-    # with open("banned_words.txt") as f:
-    #     banned_words = {word.strip().lower() for word in f}
-
-    # if any(word in message for word in banned_words):
-    #     return render_template('index.html', counter=counter, banned_word=True)
-    
-    # Save new record to databse
     save_counter(counter, message, date, time, client_ip)
 
-    # Push message to discord
     push_to_discord(counter, message, timestamp)
 
     return redirect(url_for('index'))
 
-# Remove row from overview
 @app.route('/remove/<id>', methods=['GET'])
 def remove_item(id):
     print(id)
     return redirect(url_for('overview'))
 
-# Robots.txt file
 @app.route('/robots.txt')
 def robots_txt():
     return send_from_directory('static', 'robots.txt', mimetype='text/plain')
 
-# Index route functions
 @app.route('/')
 def index():
     counter = get_latest_counter()
@@ -186,11 +162,19 @@ def index():
 def index_redirect():
     return redirect(url_for('index'))
 
+@app.route('/healthz')
+def healthz():
+    conn = connect_db()
+    if conn:
+        conn.close()
+        return jsonify({"status": "ok"}), 200
+    return jsonify({"status": "db_unavailable"}), 503
+
 # API Methods
 @app.route('/api/counts', methods=['GET'])
 def api_counts():
     counters = get_all_counters()
-    
+
     formatted_counters = [
         {
             "count": counter[0],
@@ -200,11 +184,6 @@ def api_counts():
         for counter in counters
     ]
     return jsonify(formatted_counters)
-
-# Old API Function
-# @app.route('/api/counts/<id>', methods=["GET"])
-# def api_counts_id(id):
-    
 
 @app.route('/api/counts/<id>', methods=["GET", "DELETE", "POST"])
 def api_remove(id):
@@ -218,7 +197,6 @@ def api_remove(id):
         conn = connect_db()
         cursor = conn.cursor()
 
-        # Query to search record
         query = "DELETE FROM counts WHERE id = %s"
         cursor.execute(query, (id,))
 
@@ -231,12 +209,9 @@ def api_remove(id):
         conn.close()
 
         if request.headers.get("X-Requested-With") == "XMLHttpRequest":
-            # Als het een AJAX-call is → JSON
             return jsonify({"message": f"Record {id} deleted"}), 200
         else:
-            # Anders redirect
             return redirect(url_for("overview"))
 
 if __name__ == '__main__':
     app.run(debug=True, host="0.0.0.0", port=80)
-    

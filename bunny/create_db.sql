@@ -1,0 +1,7 @@
+CREATE TABLE IF NOT EXISTS counts (
+    id INT PRIMARY KEY,
+    message VARCHAR(500) NOT NULL,
+    date VARCHAR(200) NOT NULL,
+    time VARCHAR(200) NOT NULL,
+    client_ip VARCHAR(15) NOT NULL
+);
