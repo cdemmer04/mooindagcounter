@@ -1,4 +1,4 @@
-# Mooindagcounter — Bunny
+# Mooindagcounter --- Bunny
 
 Flask app volledig gehost op [Bunny.net](https://bunny.net).
 
