@@ -176,3 +176,4 @@ bin/activate
 bin/
 compose/
 env/
+/.claude

@@ -1,6 +1,12 @@
-# Mooindagcounter DB
-Deze versie van de Mooindagcounter maakt gebruik van een MySQL Database die ervoor zorgt dat de counts, berichten en datums worden bijgehouden.
+# Mooindagcounter
 
-# Script voor development
-#!/bin/bash
-gunicorn app:app --certfile=/etc/letsencrypt/live/mooindagcounter.nl/cert.pem --keyfile=/etc/letsencrypt/live/mooindagcounter.nl/privkey.pem --bind 0.0.0.0:$1
+Een simpele teller-app gebouwd met Flask en een MySQL-compatibele database.
+
+## Varianten
+
+| Map | Beschrijving |
+|---|---|
+| [`self-hosted/`](self-hosted/) | Draai zelf op een VPS of lokaal met MariaDB/MySQL |
+| [`bunny/`](bunny/) | Volledig managed via [Bunny.net](https://bunny.net) (Magic Containers + Database + Edge Scripts) |
+
+Zie de README in elke map voor instructies.
