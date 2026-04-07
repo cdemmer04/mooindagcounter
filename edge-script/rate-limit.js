@@ -6,15 +6,31 @@
  *  - www → apex redirect
  *  - Cache-Control headers for dynamic routes
  *  - No-cache enforcement for POST requests
+ *
+ * Note: Rate limiting uses an in-memory Map per edge isolate. Each Bunny
+ * edge location runs its own isolate, so the counter resets per location and
+ * per cold start. This provides best-effort protection against casual spam.
+ * For strict global rate limiting, replace this with a shared backend call.
  */
 
 import * as BunnySDK from "https://esm.sh/@bunny.net/edgescript-sdk@0.10.0";
 
 const RATE_LIMIT_WINDOW_MS = 60_000; // 1 minute
 const RATE_LIMIT_MAX = 5;            // max requests per window per IP
+const CLEANUP_INTERVAL_MS = 300_000; // clean up expired entries every 5 minutes
 
 // In-memory store for rate limiting (per isolate, resets on cold start)
 const rateLimitStore = new Map();
+
+// Periodically remove expired entries to prevent unbounded memory growth
+setInterval(() => {
+    const now = Date.now();
+    for (const [key, entry] of rateLimitStore) {
+        if (now - entry.windowStart > RATE_LIMIT_WINDOW_MS) {
+            rateLimitStore.delete(key);
+        }
+    }
+}, CLEANUP_INTERVAL_MS);
 
 function getRateLimitKey(ip) {
     return `rl:${ip}`;
@@ -51,7 +67,6 @@ BunnySDK.serve({
         // 2. Rate limiting on POST /increment
         if (request.method === "POST" && url.pathname === "/increment") {
             const clientIp =
-                request.headers.get("CF-Connecting-IP") ||
                 request.headers.get("X-Forwarded-For")?.split(",")[0].trim() ||
                 "unknown";
 
