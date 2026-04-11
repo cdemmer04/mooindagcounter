@@ -12,3 +12,17 @@ updates:
     open-pull-requests-limit: 5
     allow:
       - dependency-type: "all"
+
+  - package-ecosystem: "docker"
+    directory: "/bunny"
+    schedule:
+      interval: "weekly"
+    commit-message:
+      prefix: "chore"
+
+  - package-ecosystem: "docker"
+    directory: "/self-hosted"
+    schedule:
+      interval: "weekly"
+    commit-message:
+      prefix: "chore"
