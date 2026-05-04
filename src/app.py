@@ -165,7 +165,7 @@ def api_remove(id):
         counter = get_counter(id)
         return jsonify(counter) if counter else ("Not found", 404)
 
-    db_execute("DELETE FROM counts WHERE id = ?", (int(id),))
+    db_execute("DELETE FROM counts WHERE id = %s", (int(id),))
 
     if request.headers.get("X-Requested-With") == "XMLHttpRequest":
         return jsonify({"message": f"Record {id} deleted"}), 200

@@ -1,2 +1,0 @@
-user-agent: *
-Disallow: /templates/index.html

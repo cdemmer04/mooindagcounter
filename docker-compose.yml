@@ -4,15 +4,14 @@ services:
   db:
     image: mariadb:12.2
     restart: unless-stopped
-    env_file: .env
     environment:
       MARIADB_ROOT_PASSWORD: root
       MARIADB_DATABASE: mooindagcounter
       MARIADB_USER: mooindagcounter
-      MARIADB_PASSWORD: ${DB_PASSWORD}
+      MARIADB_PASSWORD: ${DB_PASSWORD:-example}
     volumes:
       - db_data:/var/lib/mysql
-      - ./create_db.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+      - ./src/create_db.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
     healthcheck:
       test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
       start_period: 30s
@@ -21,9 +20,9 @@ services:
       retries: 5
 
   app:
-    build: .
+    build:
+      context: ./src
     restart: unless-stopped
-    env_file: .env
     ports:
       - "8080:8080"
     environment:
@@ -31,7 +30,7 @@ services:
       DB_PORT: 3306
       DB_NAME: mooindagcounter
       DB_USER: mooindagcounter
-      DB_PASSWORD: ${DB_PASSWORD}
+      DB_PASSWORD: ${DB_PASSWORD:-example}
       DISCORD_WEBHOOK_URL: ${DISCORD_WEBHOOK_URL:-}
       GUNICORN_WORKERS: ${GUNICORN_WORKERS:-2}
     depends_on:

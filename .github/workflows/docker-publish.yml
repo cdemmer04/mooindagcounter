@@ -1,11 +1,11 @@
-name: Build & Push to GHCR (bunny)
+name: Build & Push to GHCR
 
 on:
   push:
     branches:
       - main
     paths:
-      - "bunny/**"
+      - "src/**"
       - ".github/workflows/docker-publish.yml"
   workflow_dispatch:
 
@@ -40,7 +40,7 @@ jobs:
       - name: Build and push image
         uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f
         with:
-          context: ./bunny
+          context: ./src
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}

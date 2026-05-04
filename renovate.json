@@ -3,7 +3,7 @@
   "extends": ["config:recommended"],
   "forkProcessing": "enabled",
   "pinDigests": true,
-  "enabledManagers": ["pip_requirements", "pip_setup", "pipenv", "poetry", "pyproject", "dockerfile", "docker-compose", "github-actions"],
+  "enabledManagers": ["pip_requirements", "pip_setup", "pipenv", "poetry", "dockerfile", "docker-compose", "github-actions"],
   "packageRules": [
     {
       "matchManagers": ["github-actions"],
