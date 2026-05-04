@@ -37,8 +37,12 @@ CREATE TABLE IF NOT EXISTS counts (
 
 ### 2. Magic Container
 
-1. Push de Docker image naar je Bunny container registry.
-2. Maak een Magic Container aan met deze omgevingsvariabelen:
+1. De Docker image wordt automatisch gebouwd en gepushed naar GHCR via de GitHub Actions workflow (`.github/workflows/docker-publish.yml`). Het image is beschikbaar op:
+   ```
+   ghcr.io/stensel8/mooindagcounter:latest
+   ```
+   *(Bij een fork: vervang `stensel8` door jouw GitHub-gebruikersnaam.)*
+2. Maak een Magic Container aan met dit image en de volgende omgevingsvariabelen:
 
 | Variabele | Waarde |
 |---|---|
