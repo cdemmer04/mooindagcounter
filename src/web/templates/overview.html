@@ -1,17 +1,15 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="nl">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Count Overview</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='overview.css') }}">
-
-    <link rel="icon" type="image/png" href="/static/images" sizes="96x96" />
-    <link rel="icon" type="image/svg+xml" href="/static/images/favicon.svg" />
-    <link rel="shortcut icon" href="/static/images/favicon.ico" />
-    <link rel="apple-touch-icon" sizes="180x180" href="/static/images/apple-touch-icon.png" />
+    <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='images/favicon.svg') }}" />
+    <link rel="shortcut icon" href="{{ url_for('static', filename='images/favicon.ico') }}" />
+    <link rel="apple-touch-icon" sizes="180x180" href="{{ url_for('static', filename='images/apple-touch-icon.png') }}" />
     <meta name="apple-mobile-web-app-title" content="Mooindagcounter" />
-    <link rel="manifest" href="/static/site.webmanifest" />
+    <link rel="manifest" href="{{ url_for('static', filename='site.webmanifest') }}" />
 </head>
 <body>
     <div class="container">
@@ -40,13 +38,11 @@
                             <button type="submit" class="tableButton">Verwijder</button>
                         </form>
                     </td>
-                    <!-- <td><a class="tableButton" href="{{url_for('api_remove', id=row['id'])}}">Test</a></td> -->
-                    <!-- <td><a class="tableButton" href="{{url_for('remove_item', id=row['id'])}}">Test</a></td> -->
                 </tr>
                 {% endfor %}
             </tbody>
         </table>
-        <a class="button" href="{{ url_for('index') }}">Go back to counter</a>
+        <a class="button" href="{{ url_for('index') }}">Terug naar counter</a>
     </div>
 </body>
 </html>

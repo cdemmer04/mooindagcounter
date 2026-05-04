@@ -14,27 +14,39 @@ load_dotenv("./.env")
 
 # --- Connection pool ---
 _pool = None
+_pool_lock = threading.Lock()
+
 
 def get_pool():
     global _pool
     if _pool is None:
-        _pool = PooledDB(
-            creator=pymysql,
-            maxconnections=10,
-            mincached=2,
-            host=os.getenv("DB_HOST", "localhost"),
-            port=int(os.getenv("DB_PORT", "3306")),
-            user=os.getenv("DB_USER", "root"),
-            password=os.getenv("DB_PASSWORD", ""),
-            database=os.getenv("DB_NAME", "mooindagcounter"),
-            cursorclass=DictCursor,
-            autocommit=True,
-        )
+        with _pool_lock:
+            if _pool is None:  # double-checked locking
+                _pool = PooledDB(
+                    creator=pymysql,
+                    maxconnections=10,
+                    mincached=2,
+                    host=os.getenv("DB_HOST", "localhost"),
+                    port=int(os.getenv("DB_PORT", "3306")),
+                    user=os.getenv("DB_USER", "root"),
+                    password=os.getenv("DB_PASSWORD", ""),
+                    database=os.getenv("DB_NAME", "mooindagcounter"),
+                    cursorclass=DictCursor,
+                    autocommit=True,
+                )
     return _pool
 
 
 def get_connection():
     return get_pool().connection()
+
+
+# Initialise the pool at startup so misconfiguration surfaces immediately.
+with app.app_context():
+    try:
+        get_pool()
+    except Exception as e:
+        app.logger.warning("Could not initialise DB pool at startup: %s", e)
 
 
 # --- Database helpers ---
@@ -69,6 +81,27 @@ def db_execute(sql, params=()):
             conn.close()
         except Exception:
             pass
+
+
+# --- Error handlers ---
+# These ensure that any unhandled exception or HTTP error renders the
+# db_offline template instead of Flask's default white error page.
+
+@app.errorhandler(500)
+def internal_error(e):
+    app.logger.error("Unhandled 500: %s", e)
+    return render_template("db_offline.html"), 500
+
+
+@app.errorhandler(503)
+def service_unavailable(e):
+    return render_template("db_offline.html"), 503
+
+
+@app.errorhandler(Exception)
+def unhandled_exception(e):
+    app.logger.exception("Unhandled exception: %s", e)
+    return render_template("db_offline.html"), 500
 
 
 # --- App logic ---
@@ -132,9 +165,11 @@ def message_exists(message):
 @app.route("/overview")
 def overview():
     data = get_all_counters()
-    if data:
-        return render_template("overview.html", data=data)
-    return redirect(url_for("index"))
+    if data is None:
+        # DB unavailable
+        return render_template("db_offline.html"), 503
+    # data may be an empty list — still show the overview table
+    return render_template("overview.html", data=data)
 
 
 @app.route("/increment", methods=["POST"])
@@ -144,7 +179,7 @@ def increment():
     time = timestamp.time().replace(microsecond=0)
     counter = get_latest_counter()
     if counter is None:
-        return render_template("db_offline.html")
+        return render_template("db_offline.html"), 503
     message = request.form.get("message", "").strip().lower()
     if not message:
         return render_template("index.html", counter=counter, error_message=True)
@@ -176,7 +211,7 @@ def robots_txt():
 def index():
     counter = get_latest_counter()
     if counter is None:
-        return render_template("db_offline.html")
+        return render_template("db_offline.html"), 503
     return render_template("index.html", counter=counter)
 
 
