@@ -5,6 +5,7 @@
 set -e
 
 export TZ="${TZ:-Europe/Amsterdam}"
+export HOME=/tmp
 
 echo "Starting Gunicorn (TZ=${TZ})..."
 
@@ -13,5 +14,6 @@ exec gunicorn app:app \
     --workers "${GUNICORN_WORKERS:-2}" \
     --timeout 30 \
     --pid /tmp/gunicorn.pid \
+    --worker-tmp-dir /tmp \
     --access-logfile - \
     --error-logfile -

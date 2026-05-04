@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, redirect, url_for, send_from_directory, jsonify
+from flask import Flask, render_template, request, redirect, url_for, jsonify
 from datetime import datetime
 from zoneinfo import ZoneInfo
 import os
@@ -8,6 +8,7 @@ from dotenv import load_dotenv
 import pymysql
 from pymysql.cursors import DictCursor
 from dbutils.pooled_db import PooledDB
+from werkzeug.exceptions import HTTPException
 
 app = Flask(__name__, static_folder="static")
 load_dotenv("./.env")
@@ -55,6 +56,7 @@ with app.app_context():
 # --- Database helpers ---
 
 def db_query(sql, params=()):
+    conn = None
     try:
         conn = get_connection()
         with conn.cursor() as cur:
@@ -64,13 +66,15 @@ def db_query(sql, params=()):
         app.logger.error("DB query error: %s", e)
         return None
     finally:
-        try:
-            conn.close()
-        except Exception:
-            pass
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
 
 
 def db_execute(sql, params=()):
+    conn = None
     try:
         conn = get_connection()
         with conn.cursor() as cur:
@@ -80,13 +84,19 @@ def db_execute(sql, params=()):
         app.logger.error("DB execute error: %s", e)
         return False
     finally:
-        try:
-            conn.close()
-        except Exception:
-            pass
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
 
 
 # --- Error handlers ---
+
+@app.errorhandler(404)
+def not_found(e):
+    return jsonify({"error": "Not found"}), 404
+
 
 @app.errorhandler(500)
 def internal_error(e):
@@ -101,6 +111,9 @@ def service_unavailable(e):
 
 @app.errorhandler(Exception)
 def unhandled_exception(e):
+    # Let HTTP exceptions (4xx/5xx) be handled by their own handlers
+    if isinstance(e, HTTPException):
+        return e
     app.logger.exception("Unhandled exception: %s", e)
     return render_template("db_offline.html"), 500
 
@@ -181,10 +194,10 @@ def increment():
         return render_template("db_offline.html"), 503
     message = request.form.get("message", "").strip().lower()
     if not message:
-        return render_template("index.html", counter=counter, error_message=True)
+        return render_template("index.html", counter=counter, error_message="empty")
 
     if message_exists(message):
-        return render_template("index.html", counter=counter, error_message=True)
+        return render_template("index.html", counter=counter, error_message="duplicate")
 
     counter += 1
     client_ip = request.headers.get("X-Forwarded-For") or request.remote_addr
@@ -203,12 +216,8 @@ def remove_item(id):
 
 @app.route("/robots.txt")
 def robots_txt():
+    from flask import send_from_directory
     return send_from_directory("static", "robots.txt", mimetype="text/plain")
-
-
-@app.route("/static/<path:filename>")
-def static_files(filename):
-    return send_from_directory("static", filename)
 
 
 @app.route("/")
@@ -240,7 +249,7 @@ def api_counts():
     )
 
 
-@app.route("/api/counts/<int:id>", methods=["GET", "DELETE", "POST"])
+@app.route("/api/counts/<int:id>", methods=["GET", "DELETE"])
 def api_remove(id):
     if request.method == "GET":
         counter = get_counter(id)
