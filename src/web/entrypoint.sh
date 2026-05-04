@@ -4,7 +4,9 @@
 # A separate health-check on /healthz will reflect DB status.
 set -e
 
-echo "Starting Gunicorn..."
+export TZ="${TZ:-Europe/Amsterdam}"
+
+echo "Starting Gunicorn (TZ=${TZ})..."
 
 exec gunicorn app:app \
     --bind "0.0.0.0:8080" \

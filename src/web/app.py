@@ -1,5 +1,6 @@
 from flask import Flask, render_template, request, redirect, url_for, send_from_directory, jsonify
 from datetime import datetime
+from zoneinfo import ZoneInfo
 import os
 import threading
 import requests
@@ -10,6 +11,8 @@ from dbutils.pooled_db import PooledDB
 
 app = Flask(__name__)
 load_dotenv("./.env")
+
+AMS = ZoneInfo(os.getenv("TZ", "Europe/Amsterdam"))
 
 
 # --- Connection pool ---
@@ -84,8 +87,6 @@ def db_execute(sql, params=()):
 
 
 # --- Error handlers ---
-# These ensure that any unhandled exception or HTTP error renders the
-# db_offline template instead of Flask's default white error page.
 
 @app.errorhandler(500)
 def internal_error(e):
@@ -166,15 +167,13 @@ def message_exists(message):
 def overview():
     data = get_all_counters()
     if data is None:
-        # DB unavailable
         return render_template("db_offline.html"), 503
-    # data may be an empty list — still show the overview table
     return render_template("overview.html", data=data)
 
 
 @app.route("/increment", methods=["POST"])
 def increment():
-    timestamp = datetime.now()
+    timestamp = datetime.now(tz=AMS)
     date = timestamp.date()
     time = timestamp.time().replace(microsecond=0)
     counter = get_latest_counter()
