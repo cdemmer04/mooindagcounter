@@ -9,7 +9,7 @@ import pymysql
 from pymysql.cursors import DictCursor
 from dbutils.pooled_db import PooledDB
 
-app = Flask(__name__)
+app = Flask(__name__, static_folder="static")
 load_dotenv("./.env")
 
 AMS = ZoneInfo(os.getenv("TZ", "Europe/Amsterdam"))
