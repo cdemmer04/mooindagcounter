@@ -6,7 +6,7 @@ Een simpele teller-app gebouwd met Flask. Één app + één MariaDB database (Ma
 
 ```bash
 # Copy example env file
-cp src/.env.example .env
+cp src/web/.env.example .env
 
 # Edit .env with your settings (DB_PASSWORD, Discord webhook, etc.)
 nano .env
@@ -19,10 +19,10 @@ Visit `http://localhost:8080`.
 
 ## Deployment
 
-**Single image approach:** App + MariaDB runnen samen als containers.
+**Two-image approach:** `mooindagcounter-web` (Flask) and `mooindagcounter-db` (MariaDB) run as separate containers.
 
 - **Locally:** Use `docker-compose.yml` (included).
-- **Bunny Magic Containers:** Use the same image (`ghcr.io/<owner>/mooindagcounter:latest`) with a separate MariaDB container or any managed database.
+- **Production:** Pull `ghcr.io/<owner>/mooindagcounter-web:latest` and `ghcr.io/<owner>/mooindagcounter-db:latest`.
 
 ### Environment Variables
 
@@ -36,15 +36,17 @@ Visit `http://localhost:8080`.
 
 ## Structure
 
-- `src/`: Python Flask app, templates, static assets, Dockerfile
+- `src/web/`: Python Flask app, templates, static assets, Dockerfile
+- `src/db/`: MariaDB Dockerfile and schema
 - `docker-compose.yml`: Local development setup
-- `.github/workflows/`: CI/CD for building and pushing Docker images
+- `.github/workflows/`: CI/CD for building and pushing both Docker images
 
 ## Optional: Bunny Edge Script
 
-The `src/edge-script/rate-limit.js` script provides:
+The `src/web/edge-script/rate-limit.js` script provides:
 - Rate limiting (5 requests per IP per minute)
 - www → apex domain redirect
 - Cache-Control headers for dynamic routes
 
 Deploy this script in Bunny CDN if needed.
+
