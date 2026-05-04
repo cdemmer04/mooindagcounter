@@ -206,6 +206,11 @@ def robots_txt():
     return send_from_directory("static", "robots.txt", mimetype="text/plain")
 
 
+@app.route("/static/<path:filename>")
+def static_files(filename):
+    return send_from_directory("static", filename)
+
+
 @app.route("/")
 def index():
     counter = get_latest_counter()
