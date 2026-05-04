@@ -6,10 +6,10 @@ services:
       context: ./src/db
     restart: unless-stopped
     environment:
-      MARIADB_ROOT_PASSWORD: root
+      MARIADB_ROOT_PASSWORD: ${MARIADB_ROOT_PASSWORD}
       MARIADB_DATABASE: mooindagcounter
       MARIADB_USER: mooindagcounter
-      MARIADB_PASSWORD: ${DB_PASSWORD:-example}
+      MARIADB_PASSWORD: ${DB_PASSWORD}
     volumes:
       - db_data:/var/lib/mysql
     healthcheck:
@@ -30,12 +30,15 @@ services:
       DB_PORT: 3306
       DB_NAME: mooindagcounter
       DB_USER: mooindagcounter
-      DB_PASSWORD: ${DB_PASSWORD:-example}
+      DB_PASSWORD: ${DB_PASSWORD}
       DISCORD_WEBHOOK_URL: ${DISCORD_WEBHOOK_URL:-}
       GUNICORN_WORKERS: ${GUNICORN_WORKERS:-2}
     depends_on:
       db:
         condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp
 
 volumes:
   db_data:
