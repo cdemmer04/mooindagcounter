@@ -8,14 +8,15 @@ app = Flask(__name__)
 load_dotenv("./.env")
 
 
-# --- Bunny Database (libSQL HTTP API) ---
-
+# --- LibSQL (HTTP) Database helpers ---
 def _db_url():
     url = os.getenv("BUNNY_DATABASE_URL", "").rstrip("/")
     return url.replace("libsql://", "https://") + "/v2/pipeline"
 
+
 def _token():
     return os.getenv("BUNNY_DATABASE_AUTH_TOKEN")
+
 
 def _cell(cell):
     t = cell.get("type")
@@ -27,10 +28,12 @@ def _cell(cell):
         return float(cell["value"])
     return cell.get("value")
 
+
 def _arg(p):
     if isinstance(p, int):
         return {"type": "integer", "value": str(p)}
     return {"type": "text", "value": str(p)}
+
 
 def db_query(sql, params=()):
     stmt = {"sql": sql, "args": [_arg(p) for p in params]}
@@ -39,7 +42,7 @@ def db_query(sql, params=()):
             _db_url(),
             json={"requests": [{"type": "execute", "stmt": stmt}, {"type": "close"}]},
             headers={"Authorization": f"Bearer {_token()}"},
-            timeout=10
+            timeout=10,
         )
         r.raise_for_status()
         result = r.json()["results"][0]["response"]["result"]
@@ -49,6 +52,7 @@ def db_query(sql, params=()):
         print(f"DB query error: {e}")
         return None
 
+
 def db_execute(sql, params=()):
     stmt = {"sql": sql, "args": [_arg(p) for p in params]}
     try:
@@ -56,7 +60,7 @@ def db_execute(sql, params=()):
             _db_url(),
             json={"requests": [{"type": "execute", "stmt": stmt}, {"type": "close"}]},
             headers={"Authorization": f"Bearer {_token()}"},
-            timeout=10
+            timeout=10,
         )
         r.raise_for_status()
         return True
@@ -93,7 +97,7 @@ def get_all_counters():
 def get_latest_counter():
     rows = db_query("SELECT id FROM counts ORDER BY id DESC LIMIT 1")
     if rows is None:
-        return "Database not connected!"
+        return None
     return rows[0]["id"] if rows else 0
 
 def message_exists(message):
@@ -116,6 +120,8 @@ def increment():
     date = timestamp.date()
     time = timestamp.time().replace(microsecond=0)
     counter = get_latest_counter()
+    if counter is None:
+        return render_template('db_offline.html')
     message = request.form.get("message").lower()
 
     if message_exists(message):
@@ -138,7 +144,10 @@ def robots_txt():
 
 @app.route('/')
 def index():
-    return render_template('index.html', counter=get_latest_counter())
+    counter = get_latest_counter()
+    if counter is None:
+        return render_template('db_offline.html')
+    return render_template('index.html', counter=counter)
 
 @app.route('/index')
 def index_redirect():

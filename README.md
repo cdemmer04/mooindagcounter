@@ -1,12 +1,18 @@
 # Mooindagcounter
 
-Een simpele teller-app gebouwd met Flask en een MySQL-compatibele database.
+Een simpele teller-app gebouwd met Flask.
 
-## Varianten
+## Deployment varianten
 
 | Map | Beschrijving |
 |---|---|
-| [`self-hosted/`](self-hosted/) | Draai zelf op een VPS of lokaal met MariaDB/MySQL |
-| [`bunny/`](bunny/) | Volledig managed via [Bunny.net](https://bunny.net) (Magic Containers + Database + Edge Scripts) |
+| [`bunny/`](bunny/) | Bunny.net deployment met **Magic Containers** (app) + **Bunny Database** (managed) + optioneel Edge Script |
+| [`self-hosted/`](self-hosted/) | Zelf hosten met Docker Compose (app + MariaDB) |
 
-Zie de README in elke map voor instructies.
+## Belangrijk onderscheid
+
+- Het GHCR package `ghcr.io/stensel8/mooindagcounter` is een **kant-en-klare app image** voor Magic Containers.
+- De database zit **niet** in die image. Die koppel je apart (standaard: Bunny Database).
+- Wil je app + database als twee samenwerkende containers draaien, gebruik dan de `self-hosted/` variant of maak zelf een multi-container setup in Bunny.
+
+Zie de README in elke map voor de concrete stappen.
