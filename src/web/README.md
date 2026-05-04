@@ -1,4 +1,4 @@
-# Mooindagcounter - App
+# Mooindagcounter - Web
 
 Flask-based counter application with MariaDB backend.
 
@@ -6,8 +6,7 @@ Flask-based counter application with MariaDB backend.
 
 - `app.py`: Main Flask application and database layer
 - `requirements.txt`: Python dependencies
-- `Dockerfile`: Container definition
-- `create_db.sql`: Database schema (run on first startup)
+- `Dockerfile`: Container definition for `mooindagcounter-web`
 - `.env.example`: Example environment variables
 - `templates/`: HTML templates (Jinja2)
 - `static/`: CSS, images, manifest, robots.txt
@@ -17,7 +16,7 @@ Flask-based counter application with MariaDB backend.
 
 ```bash
 # From repo root:
-cp src/.env.example .env
+cp src/web/.env.example .env
 # Edit .env with your values (especially DB_PASSWORD)
 docker compose up --build
 ```
@@ -45,7 +44,7 @@ The app expects a `counts` table with columns:
 - `time` (TEXT)
 - `client_ip` (TEXT)
 
-This is created automatically via `create_db.sql` on first startup.
+This is created automatically via `src/db/create_db.sql` on first startup.
 
 ## API Routes
 
@@ -58,7 +57,6 @@ This is created automatically via `create_db.sql` on first startup.
 
 ## Deployment Notes
 
-- The Docker image is built from this folder and pushed to GHCR via GitHub Actions.
-- Use a containerized MariaDB (locally or via Bunny) as the database.
-- For Bunny Magic Containers: deploy this image + a MariaDB container, ensure `DB_HOST` points to the MariaDB service.
-- Static assets are served by Flask (in production, consider a CDN or reverse proxy).
+- The Docker image (`mooindagcounter-web`) is built from this folder and pushed to GHCR via GitHub Actions.
+- Pair with the `mooindagcounter-db` image for the database.
+
