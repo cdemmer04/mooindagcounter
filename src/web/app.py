@@ -16,7 +16,7 @@ load_dotenv("./.env")
 AMS = ZoneInfo(os.getenv("TZ", "Europe/Amsterdam"))
 
 
-# --- Connection pool ---
+# Verbindingspool
 _pool = None
 _pool_lock = threading.Lock()
 
@@ -25,7 +25,7 @@ def get_pool():
     global _pool
     if _pool is None:
         with _pool_lock:
-            if _pool is None:  # double-checked locking
+            if _pool is None:  # dubbel gecheckte vergrendeling
                 _pool = PooledDB(
                     creator=pymysql,
                     maxconnections=10,
@@ -45,7 +45,7 @@ def get_connection():
     return get_pool().connection()
 
 
-# Initialise the pool at startup so misconfiguration surfaces immediately.
+# Pool initialiseren bij opstarten zodat een verkeerde configuratie meteen zichtbaar is.
 with app.app_context():
     try:
         get_pool()
@@ -53,7 +53,7 @@ with app.app_context():
         app.logger.warning("Could not initialise DB pool at startup: %s", e)
 
 
-# --- Database helpers ---
+# Database-hulpfuncties
 
 def db_query(sql, params=()):
     conn = None
@@ -91,7 +91,7 @@ def db_execute(sql, params=()):
                 pass
 
 
-# --- Error handlers ---
+# Foutafhandeling
 
 @app.errorhandler(404)
 def not_found(e):
@@ -111,17 +111,17 @@ def service_unavailable(e):
 
 @app.errorhandler(Exception)
 def unhandled_exception(e):
-    # Let HTTP exceptions (4xx/5xx) be handled by their own handlers
+    # HTTP-uitzonderingen (4xx/5xx) worden door hun eigen handlers afgehandeld
     if isinstance(e, HTTPException):
         return e
     app.logger.exception("Unhandled exception: %s", e)
     return render_template("db_offline.html"), 500
 
 
-# --- App logic ---
+# Applicatielogica
 
 def push_to_discord(counter, message, timestamp):
-    """Send Discord notification in a background thread so it never blocks the request."""
+    """Verstuur een Discord-melding in een achtergrondthread zodat de request niet geblokkeerd wordt."""
     url = os.getenv("DISCORD_WEBHOOK_URL")
     if not url:
         return
@@ -174,7 +174,7 @@ def message_exists(message):
     return bool(rows)
 
 
-# --- Routes ---
+# Routes
 
 @app.route("/overview")
 def overview():
@@ -209,7 +209,7 @@ def increment():
 
 @app.route("/remove/<int:id>", methods=["POST"])
 def remove_item(id):
-    """Delete a count entry. Requires a POST to prevent accidental deletion via GET."""
+    """Verwijder een teller-inzending. Vereist een POST om onbedoeld verwijderen via GET te voorkomen."""
     db_execute("DELETE FROM counts WHERE id = %s", (id,))
     return redirect(url_for("overview"))
 
@@ -263,5 +263,5 @@ def api_remove(id):
 
 
 if __name__ == "__main__":
-    # debug=False — production uses Gunicorn via entrypoint.sh
+    # debug staat uit; productie draait via Gunicorn (entrypoint.sh)
     app.run(debug=False, host="0.0.0.0", port=8080)

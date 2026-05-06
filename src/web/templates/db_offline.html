@@ -5,131 +5,41 @@
   <meta name="robots" content="noindex">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Mooindag Counter</title>
-  <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='images/favicon.svg') }}" />
-  <link rel="shortcut icon" href="{{ url_for('static', filename='images/favicon.ico') }}" />
-  <link rel="apple-touch-icon" sizes="180x180" href="{{ url_for('static', filename='images/apple-touch-icon.png') }}" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='bootstrap.min.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}">
+  <link rel="icon" type="image/png" href="{{ url_for('static', filename='img/favicon/favicon-96x96.png') }}" sizes="96x96" />
+  <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='img/favicon/favicon.svg') }}" />
+  <link rel="shortcut icon" href="{{ url_for('static', filename='img/favicon/favicon.ico') }}" />
+  <link rel="apple-touch-icon" sizes="180x180" href="{{ url_for('static', filename='img/favicon/apple-touch-icon.png') }}" />
   <meta name="apple-mobile-web-app-title" content="Mooindagcounter" />
-  <link rel="manifest" href="{{ url_for('static', filename='site.webmanifest') }}" />
-  <style>
-    :root {
-      --default-green: #009c82;
-    }
-
-    * {
-      margin: 0;
-      padding: 0;
-      box-sizing: border-box;
-    }
-
-    body {
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      height: 100vh;
-      overflow-y: hidden;
-      font-family: 'Arial', sans-serif;
-      background-attachment: fixed;
-      background-image: url("{{ url_for('static', filename='img/Background.svg') }}");
-      background-size: cover;
-      background-repeat: no-repeat;
-      background-position: center;
-      background-color: #d6f0ec;
-    }
-
-    .container {
-      text-align: center;
-      background-color: #fff;
-      padding: 40px;
-      border-radius: 10px;
-      box-shadow: 0px 4px 15px rgba(0, 0, 0, 0.1);
-      max-width: 400px;
-      width: 100%;
-    }
-
-    h1 {
-      font-size: 3em;
-      color: #333;
-      margin-bottom: 20px;
-    }
-
-    #error_message {
-      color: red;
-    }
-
-    .db-notice {
-      display: inline-block;
-      margin-bottom: 24px;
-      padding: 10px 18px;
-      border-radius: 5px;
-      background-color: #fff3cd;
-      border: 1px solid #ffc107;
-      color: #856404;
-      font-size: 0.95em;
-    }
-
-    .db-notice strong {
-      display: block;
-      margin-bottom: 4px;
-    }
-
-    .sub {
-      font-size: 0.92em;
-      color: #555;
-      margin-bottom: 28px;
-      line-height: 1.6;
-    }
-
-    form {
-      margin-top: 20px;
-    }
-
-    button {
-      background-color: var(--default-green);
-      color: white;
-      padding: 15px 30px;
-      border: none;
-      border-radius: 5px;
-      font-size: 1.2em;
-      cursor: pointer;
-      transition: background-color 0.3s ease;
-      width: 100%;
-    }
-
-    button:hover {
-      background-color: #007a6a;
-    }
-
-    button:active {
-      transform: scale(0.98);
-    }
-
-    .footer {
-      font-size: 0.8em;
-      color: #888;
-      margin-top: 30px;
-    }
-  </style>
+  <link rel="manifest" href="{{ url_for('static', filename='img/favicon/site.webmanifest') }}" />
 </head>
 
-<body>
-  <div class="container">
-    <h1>Mooindag counter</h1>
+<body class="d-flex align-items-center min-vh-100">
+  <div class="container py-4">
+    <div class="row justify-content-center">
+      <div class="col-12 col-sm-8 col-md-6 col-lg-5">
+        <div class="card shadow text-center p-4">
+          <h1 class="fs-1 mb-3">Mooindag counter</h1>
 
-    <div class="db-notice">
-      <strong>Database uitgeschakeld</strong>
-      De teller is momenteel niet beschikbaar.
+          <div class="alert alert-warning mb-3" role="alert">
+            <strong>Database uitgeschakeld</strong><br>
+            De teller is momenteel niet beschikbaar.
+          </div>
+
+          <p class="text-muted mb-4">
+            De database staat op dit moment uit.<br>
+            Kom later terug om een mooindag te registreren.
+          </p>
+
+          <form action="https://uptime.stensel.nl" method="get">
+            <button type="submit" class="btn btn-success w-100">Status</button>
+          </form>
+
+          <div class="mt-4 text-muted small">Copyright Mooindagcounter</div>
+        </div>
+      </div>
     </div>
-
-    <p class="sub">
-      De database staat op dit moment uit.<br>
-      Kom later terug om een mooindag te registreren.
-    </p>
-
-    <form action="https://uptime.stensel.nl" method="get">
-      <button type="submit">Status</button>
-    </form>
-
-    <div class="footer">Copyright Mooindagcounter</div>
   </div>
 </body>
 </html>
