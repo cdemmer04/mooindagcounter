@@ -8,7 +8,7 @@
     "dockerfile",
     "docker-compose",
     "github-actions",
-    "regex"
+    "custom.regex"
   ],
   "packageRules": [
     {
@@ -19,7 +19,9 @@
   "customManagers": [
     {
       "customType": "regex",
-      "fileMatch": ["src/web/edge-script/rate-limit\\.js$"],
+      "managerFilePatterns": [
+        "/src/web/edge-script/rate-limit\\.js$/"
+      ],
       "matchStrings": [
         "edgescript-sdk@(?<currentValue>[0-9]+\\.[0-9]+\\.[0-9]+)"
       ],
