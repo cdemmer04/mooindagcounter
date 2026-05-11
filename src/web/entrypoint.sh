@@ -1,13 +1,13 @@
 #!/bin/sh
-# Start Gunicorn immediately.
-# DB availability is handled gracefully by the app (db_offline.html).
-# A separate health-check on /healthz will reflect DB status.
+# Gunicorn direct opstarten.
+# Als de DB er niet is, toont de app gewoon db_offline.html.
+# /healthz geeft aan of de DB bereikbaar is.
 set -e
 
 export TZ="${TZ:-Europe/Amsterdam}"
 export HOME=/tmp
 
-echo "Starting Gunicorn (TZ=${TZ})..."
+echo "Mooindag! Gunicorn starten (TZ=${TZ})..."
 
 exec gunicorn app:app \
     --bind "0.0.0.0:8080" \

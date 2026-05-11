@@ -1,62 +1,64 @@
 # Mooindagcounter - Web
 
-Flask-based counter application with MariaDB backend.
+Mooindag! Flask-gebaseerde teller-app met MariaDB als backend.
 
-## Structure
+## Structuur
 
-- `app.py`: Main Flask application and database layer
-- `requirements.txt`: Python dependencies
-- `Dockerfile`: Container definition for `mooindagcounter-web`
-- `.env.example`: Example environment variables
-- `templates/`: HTML templates (Jinja2)
-- `static/`: CSS, images, manifest, robots.txt
-- `edge-script/`: Optional Bunny CDN edge script for rate limiting
+- `app.py`: Flask-app en databaselaag
+- `requirements.txt`: Python-afhankelijkheden
+- `Dockerfile`: Container definitie voor `mooindagcounter-web`
+- `.env.example`: Voorbeeld omgevingsvariabelen
+- `templates/`: HTML-templates (Jinja2)
+- `static/`: CSS, afbeeldingen, manifest, robots.txt
 
-## Running Locally
+## Lokaal draaien
 
 ```bash
-# From repo root:
+# Vanuit de repo root:
 cp src/web/.env.example .env
-# Edit .env with your values (especially DB_PASSWORD)
+# Vul je waarden in (in elk geval DB_PASSWORD)
 docker compose up --build
 ```
 
-App runs on `http://localhost:8080`.
+App draait op `http://localhost:8080`.
 
-## Environment Variables
+## Omgevingsvariabelen
 
 ```
-DB_HOST=localhost          # MariaDB hostname
-DB_PORT=3306              # MariaDB port
-DB_USER=mooindagcounter   # DB user
-DB_PASSWORD=              # DB password (required)
-DB_NAME=mooindagcounter   # Database name
-DISCORD_WEBHOOK_URL=      # Optional: Discord notifications
-GUNICORN_WORKERS=2        # Number of app workers
+DB_HOST=localhost          # MariaDB hostnaam
+DB_PORT=3306               # MariaDB poort
+DB_USER=mooindagcounter    # DB gebruiker
+DB_PASSWORD=               # DB wachtwoord (verplicht)
+DB_NAME=mooindagcounter    # Databasenaam
+DISCORD_WEBHOOK_URL=       # Optioneel: Discord meldingen
+GUNICORN_WORKERS=2         # Aantal app workers
 ```
 
 ## Database
 
-The app expects a `counts` table with columns:
-- `id` (INT, PRIMARY KEY)
+De app verwacht een `counts` tabel met de volgende kolommen:
+- `id` (INT, AUTO_INCREMENT, PRIMARY KEY)
 - `message` (TEXT)
 - `date` (TEXT)
 - `time` (TEXT)
 - `client_ip` (TEXT)
 
-This is created automatically via `src/db/create_db.sql` on first startup.
+Dit wordt automatisch aangemaakt via `src/db/create_db.sql` bij de eerste opstart.
 
-## API Routes
+## Routes
 
-- `GET /` - Main counter page
-- `POST /increment` - Increment counter with message
-- `GET /overview` - List all counts
-- `DELETE /api/counts/<id>` - Delete a count
-- `GET /healthz` - Health check
-- `GET /api/counts` - JSON API list all
+### Web UI
+- `GET /` - Teller pagina
+- `POST /increment` - Nieuwe count toevoegen (formulier)
+- `GET /overview` - Overzicht van alle counts
+- `POST /remove/<id>` - Count verwijderen (formulier)
 
-## Deployment Notes
+### API (JSON)
+- `GET /healthz` - Statuscheck
+- `GET /api/counts` - Alle counts ophalen
+- `GET /api/counts/<id>` - Eén count ophalen
+- `DELETE /api/counts/<id>` - Count verwijderen
 
-- The Docker image (`mooindagcounter-web`) is built from this folder and pushed to GHCR via GitHub Actions.
-- Pair with the `mooindagcounter-db` image for the database.
+## Deployment
 
+Het Docker image (`mooindagcounter-web`) wordt gebouwd vanuit deze map en gepusht naar GHCR via GitHub Actions. Combineer met het `mooindagcounter-db` image voor de database.

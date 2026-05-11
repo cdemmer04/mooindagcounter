@@ -17,6 +17,7 @@
     <link rel="manifest" href="{{ url_for('static', filename='img/favicon/site.webmanifest') }}" />
 </head>
 
+<!-- Mooindag! -->
 <body class="d-flex align-items-center min-vh-100">
     <div class="container py-4">
         <div class="row justify-content-center">
@@ -29,8 +30,8 @@
                     <p class="text-danger">Voer een bericht in!</p>
                     {% elif error_message == "duplicate" %}
                     <p class="text-danger">Dit bericht bestaat al!</p>
-                    {% elif banned_word %}
-                    <p class="text-danger">Deze uitspraak is niet toegestaan!</p>
+                    {% elif error_message == "too_long" %}
+                    <p class="text-danger">Bericht mag maximaal 300 tekens bevatten!</p>
                     {% endif %}
 
                     <form action="/increment" method="post" class="mt-3">

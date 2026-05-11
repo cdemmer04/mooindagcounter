@@ -14,18 +14,20 @@ app = Flask(__name__, static_folder="static")
 load_dotenv("./.env")
 
 AMS = ZoneInfo(os.getenv("TZ", "Europe/Amsterdam"))
+MAX_MESSAGE_LENGTH = 300
 
 
-# Verbindingspool
-_pool = None
+# --- Verbindingspool ---
+
+_pool: PooledDB | None = None
 _pool_lock = threading.Lock()
 
 
-def get_pool():
+def get_pool() -> PooledDB:
     global _pool
     if _pool is None:
         with _pool_lock:
-            if _pool is None:  # dubbel gecheckte vergrendeling
+            if _pool is None:  # dubbele check zodat de pool maar één keer aangemaakt wordt
                 _pool = PooledDB(
                     creator=pymysql,
                     maxconnections=10,
@@ -45,7 +47,7 @@ def get_connection():
     return get_pool().connection()
 
 
-# Pool initialiseren bij opstarten zodat een verkeerde configuratie meteen zichtbaar is.
+# Mooindag... Pool alvast aanmaken zodat een verkeerde config gelijk opvalt.
 with app.app_context():
     try:
         get_pool()
@@ -53,9 +55,10 @@ with app.app_context():
         app.logger.warning("Could not initialise DB pool at startup: %s", e)
 
 
-# Database-hulpfuncties
+# --- Database hulpfuncties --- Mooindag!
 
-def db_query(sql, params=()):
+def db_query(sql: str, params: tuple = ()) -> list | None:
+    """SELECT uitvoeren en alle rijen teruggeven. None bij een DB-fout."""
     conn = None
     try:
         conn = get_connection()
@@ -73,7 +76,8 @@ def db_query(sql, params=()):
                 pass
 
 
-def db_execute(sql, params=()):
+def db_execute(sql: str, params: tuple = ()) -> bool:
+    """Niet-SELECT statement uitvoeren. True als het lukt, False bij fout."""
     conn = None
     try:
         conn = get_connection()
@@ -91,7 +95,26 @@ def db_execute(sql, params=()):
                 pass
 
 
-# Foutafhandeling
+def db_insert(sql: str, params: tuple = ()) -> int | None:
+    """INSERT uitvoeren en het nieuwe rij-ID teruggeven. None bij fout."""
+    conn = None
+    try:
+        conn = get_connection()
+        with conn.cursor() as cur:
+            cur.execute(sql, params)
+            return cur.lastrowid
+    except Exception as e:
+        app.logger.error("DB insert error: %s", e)
+        return None
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+
+# --- Foutafhandeling --- Mooindag...
 
 @app.errorhandler(404)
 def not_found(e):
@@ -111,22 +134,22 @@ def service_unavailable(e):
 
 @app.errorhandler(Exception)
 def unhandled_exception(e):
-    # HTTP-uitzonderingen (4xx/5xx) worden door hun eigen handlers afgehandeld
+    # HTTP-fouten hebben hun eigen handler hierboven.
     if isinstance(e, HTTPException):
         return e
     app.logger.exception("Unhandled exception: %s", e)
     return render_template("db_offline.html"), 500
 
 
-# Applicatielogica
+# --- Applicatielogica --- Mooindag!
 
-def push_to_discord(counter, message, timestamp):
-    """Verstuur een Discord-melding in een achtergrondthread zodat de request niet geblokkeerd wordt."""
+def push_to_discord(counter: int, message: str, timestamp: datetime) -> None:
+    # Achtergrondthread zodat de response niet wacht op Discord.
     url = os.getenv("DISCORD_WEBHOOK_URL")
     if not url:
         return
 
-    def _send():
+    def _send() -> None:
         try:
             requests.post(
                 url,
@@ -146,35 +169,45 @@ def push_to_discord(counter, message, timestamp):
     threading.Thread(target=_send, daemon=True).start()
 
 
-def save_counter(counter, message, date, time, client_ip):
-    db_execute(
-        "INSERT INTO counts (id, message, date, time, client_ip) VALUES (%s, %s, %s, %s, %s)",
-        (counter, message, str(date), str(time), client_ip),
+def get_client_ip() -> str:
+    # X-Forwarded-For kan een keten van IPs bevatten; de eerste is de echte afzender.
+    forwarded_for = request.headers.get("X-Forwarded-For")
+    if forwarded_for:
+        return forwarded_for.split(",")[0].strip()
+    return request.remote_addr or "unknown"
+
+
+def save_counter(message: str, date, time, client_ip: str) -> int | None:
+    """Nieuwe count opslaan en het automatisch toegewezen ID teruggeven. None bij fout."""
+    return db_insert(
+        "INSERT INTO counts (message, date, time, client_ip) VALUES (%s, %s, %s, %s)",
+        (message, str(date), str(time), client_ip),
     )
 
 
-def get_counter(entry_id):
-    rows = db_query("SELECT * FROM counts WHERE id = %s", (int(entry_id),))
+def get_counter(entry_id: int) -> dict | None:
+    rows = db_query("SELECT * FROM counts WHERE id = %s", (entry_id,))
     return rows[0] if rows else None
 
 
-def get_all_counters():
+def get_all_counters() -> list | None:
     return db_query("SELECT id, message, date, time FROM counts ORDER BY id DESC")
 
 
-def get_latest_counter():
+def get_latest_counter() -> int | None:
+    """Huidige tellerstand teruggeven (hoogste ID). None als de DB niet bereikbaar is."""
     rows = db_query("SELECT id FROM counts ORDER BY id DESC LIMIT 1")
     if rows is None:
         return None
     return rows[0]["id"] if rows else 0
 
 
-def message_exists(message):
-    rows = db_query("SELECT message FROM counts WHERE message = %s LIMIT 1", (message,))
+def message_exists(message: str) -> bool:
+    rows = db_query("SELECT 1 FROM counts WHERE message = %s LIMIT 1", (message,))
     return bool(rows)
 
 
-# Routes
+# --- Routes --- Mooindag...
 
 @app.route("/overview")
 def overview():
@@ -187,29 +220,36 @@ def overview():
 @app.route("/increment", methods=["POST"])
 def increment():
     timestamp = datetime.now(tz=AMS)
-    date = timestamp.date()
-    time = timestamp.time().replace(microsecond=0)
     counter = get_latest_counter()
     if counter is None:
         return render_template("db_offline.html"), 503
+
     message = request.form.get("message", "").strip().lower()
+
     if not message:
         return render_template("index.html", counter=counter, error_message="empty")
+
+    if len(message) > MAX_MESSAGE_LENGTH:
+        return render_template("index.html", counter=counter, error_message="too_long")
 
     if message_exists(message):
         return render_template("index.html", counter=counter, error_message="duplicate")
 
-    counter += 1
-    client_ip = request.headers.get("X-Forwarded-For") or request.remote_addr
-    save_counter(counter, message, date, time, client_ip)
-    push_to_discord(counter, message, timestamp)
+    new_id = save_counter(
+        message,
+        timestamp.date(),
+        timestamp.time().replace(microsecond=0),
+        get_client_ip(),
+    )
+    if new_id is None:
+        return render_template("db_offline.html"), 503
 
+    push_to_discord(new_id, message, timestamp)
     return redirect(url_for("index"))
 
 
 @app.route("/remove/<int:id>", methods=["POST"])
-def remove_item(id):
-    """Verwijder een teller-inzending. Vereist een POST om onbedoeld verwijderen via GET te voorkomen."""
+def remove_item(id: int):
     db_execute("DELETE FROM counts WHERE id = %s", (id,))
     return redirect(url_for("overview"))
 
@@ -243,25 +283,25 @@ def healthz():
 
 @app.route("/api/counts", methods=["GET"])
 def api_counts():
-    counters = get_all_counters() or []
+    counters = get_all_counters()
+    if counters is None:
+        return jsonify({"error": "Database unavailable"}), 503
     return jsonify(
         [{"count": c["id"], "message": c["message"], "date": c["date"]} for c in counters]
     )
 
 
 @app.route("/api/counts/<int:id>", methods=["GET", "DELETE"])
-def api_remove(id):
+def api_count(id: int):
     if request.method == "GET":
-        counter = get_counter(id)
-        return jsonify(counter) if counter else (jsonify({"error": "Not found"}), 404)
+        entry = get_counter(id)
+        return jsonify(entry) if entry else (jsonify({"error": "Not found"}), 404)
 
-    db_execute("DELETE FROM counts WHERE id = %s", (id,))
-
-    if request.headers.get("X-Requested-With") == "XMLHttpRequest":
-        return jsonify({"message": f"Record {id} deleted"}), 200
-    return redirect(url_for("overview"))
+    ok = db_execute("DELETE FROM counts WHERE id = %s", (id,))
+    if not ok:
+        return jsonify({"error": "Database unavailable"}), 503
+    return jsonify({"message": f"Record {id} deleted"}), 200
 
 
 if __name__ == "__main__":
-    # debug staat uit; productie draait via Gunicorn (entrypoint.sh)
     app.run(debug=False, host="0.0.0.0", port=8080)
