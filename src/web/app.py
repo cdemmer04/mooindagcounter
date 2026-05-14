@@ -26,39 +26,52 @@ AMS = ZoneInfo(os.getenv("TZ", "Europe/Amsterdam"))
 # Maximale berichtlengte om de database te beschermen tegen oversized invoer.
 MAX_MESSAGE_LENGTH = 300
 
-# Globale verbindingspool; wordt aangemaakt in lifespan() en gedeeld tussen alle requests.
+# Globale verbindingspool; gedeeld tussen alle requests.
 _pool: aiomysql.Pool | None = None
+_pool_lock = asyncio.Lock()
 
 
 # --- Levenscyclus van de applicatie ---
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    """
-    Wordt eenmalig uitgevoerd bij op- en afsluiten van de applicatie.
-    Maakt de asynce MariaDB-verbindingspool aan zodat elke request
-    een bestaande verbinding kan hergebruiken in plaats van een nieuwe te openen.
-    minsize=2 houdt altijd twee verbindingen warm; maxsize=10 begrenst de DB-belasting.
-    """
-    global _pool
+async def _create_pool() -> aiomysql.Pool | None:
+    """Maakt de verbindingspool aan. Geeft None terug als de DB niet bereikbaar is."""
     try:
-        _pool = await aiomysql.create_pool(
+        return await aiomysql.create_pool(
             host=os.getenv("DB_HOST", "localhost"),
             port=int(os.getenv("DB_PORT", "3306")),
             user=os.getenv("DB_USER", "root"),
             password=os.getenv("DB_PASSWORD", ""),
             db=os.getenv("DB_NAME", "mooindagcounter"),
             autocommit=True,
-            cursorclass=aiomysql.DictCursor,  # Geeft rijen terug als dict in plaats van tuple.
+            cursorclass=aiomysql.DictCursor,
             minsize=2,
             maxsize=10,
         )
     except Exception as e:
-        # Niet crashen bij opstarten als de DB (nog) niet bereikbaar is.
-        # De app toont db_offline.html totdat de DB weer beschikbaar is.
-        logger.warning("Kon DB-pool niet initialiseren bij opstart: %s", e)
+        logger.warning("DB-pool aanmaken mislukt: %s", e)
+        return None
+
+
+async def get_pool() -> aiomysql.Pool | None:
+    """
+    Geeft de verbindingspool terug, of maakt hem aan als die er nog niet is.
+    Lazy initialisatie zodat de app blijft werken als de DB trager opstart
+    dan de webcontainer (o.a. bij Bunny Magic Containers met gedeelde namespace).
+    """
+    global _pool
+    if _pool:
+        return _pool
+    async with _pool_lock:
+        if not _pool:
+            _pool = await _create_pool()
+    return _pool
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Probeert de pool bij opstart aan te maken; sluit hem netjes af bij afsluiten."""
+    await get_pool()
     yield
-    # Sluit alle verbindingen netjes af bij afsluiten van de applicatie.
     if _pool:
         _pool.close()
         await _pool.wait_closed()
@@ -94,13 +107,13 @@ app.add_middleware(NoCacheHTMLMiddleware)
 async def db_query(sql: str, params: tuple = ()) -> list | None:
     """
     Voert een SELECT-query uit en geeft alle rijen terug als lijst van dicts.
-    Geeft None terug bij een DB-fout of ontbrekende pool, zodat de aanroepende
-    route een db_offline-pagina kan tonen in plaats van een onverwachte 500-fout.
+    Geeft None terug bij een DB-fout of onbereikbare DB.
     """
-    if not _pool:
+    pool = await get_pool()
+    if not pool:
         return None
     try:
-        async with _pool.acquire() as conn:
+        async with pool.acquire() as conn:
             async with conn.cursor() as cur:
                 await cur.execute(sql, params)
                 return await cur.fetchall()
@@ -110,14 +123,12 @@ async def db_query(sql: str, params: tuple = ()) -> list | None:
 
 
 async def db_execute(sql: str, params: tuple = ()) -> bool:
-    """
-    Voert een niet-SELECT statement uit (INSERT, UPDATE, DELETE).
-    Geeft True terug bij succes, False bij een fout of ontbrekende pool.
-    """
-    if not _pool:
+    """Voert een niet-SELECT statement uit. Geeft True terug bij succes."""
+    pool = await get_pool()
+    if not pool:
         return False
     try:
-        async with _pool.acquire() as conn:
+        async with pool.acquire() as conn:
             async with conn.cursor() as cur:
                 await cur.execute(sql, params)
         return True
@@ -127,14 +138,12 @@ async def db_execute(sql: str, params: tuple = ()) -> bool:
 
 
 async def db_insert(sql: str, params: tuple = ()) -> int | None:
-    """
-    Voert een INSERT uit en geeft het automatisch toegewezen rij-ID terug.
-    Geeft None terug bij een fout. Het ID wordt gebruikt als teller-nummer.
-    """
-    if not _pool:
+    """Voert een INSERT uit en geeft het nieuwe rij-ID terug."""
+    pool = await get_pool()
+    if not pool:
         return None
     try:
-        async with _pool.acquire() as conn:
+        async with pool.acquire() as conn:
             async with conn.cursor() as cur:
                 await cur.execute(sql, params)
                 return cur.lastrowid
