@@ -155,7 +155,7 @@ async def http_exception(request: Request, exc: StarletteHTTPException):
     if exc.status_code == 404:
         return JSONResponse({"error": "Not found"}, status_code=404)
     return templates.TemplateResponse(
-        "db_offline.html", {"request": request}, status_code=exc.status_code
+        request, "db_offline.html", {}, status_code=exc.status_code
     )
 
 
@@ -167,7 +167,7 @@ async def unhandled_exception(request: Request, exc: Exception):
     """
     logger.error("Onverwachte fout: %s", exc)
     return templates.TemplateResponse(
-        "db_offline.html", {"request": request}, status_code=500
+        request, "db_offline.html", {}, status_code=500
     )
 
 
@@ -254,8 +254,8 @@ async def index(request: Request):
     """Toont de hoofdpagina met de huidige tellerstand."""
     counter = await get_latest_counter()
     if counter is None:
-        return templates.TemplateResponse("db_offline.html", {"request": request}, status_code=503)
-    return templates.TemplateResponse("index.html", {"request": request, "counter": counter})
+        return templates.TemplateResponse(request, "db_offline.html", {}, status_code=503)
+    return templates.TemplateResponse(request, "index.html", {"counter": counter})
 
 
 @app.get("/index")
@@ -276,22 +276,22 @@ async def increment(request: Request, message: str = Form("")):
     timestamp = datetime.now(tz=AMS)
     counter = await get_latest_counter()
     if counter is None:
-        return templates.TemplateResponse("db_offline.html", {"request": request}, status_code=503)
+        return templates.TemplateResponse(request, "db_offline.html", {}, status_code=503)
 
     message = message.strip().lower()
 
     # Valideer invoer voordat de DB wordt benaderd.
     if not message:
         return templates.TemplateResponse(
-            "index.html", {"request": request, "counter": counter, "error_message": "empty"}
+            request, "index.html", {"counter": counter, "error_message": "empty"}
         )
     if len(message) > MAX_MESSAGE_LENGTH:
         return templates.TemplateResponse(
-            "index.html", {"request": request, "counter": counter, "error_message": "too_long"}
+            request, "index.html", {"counter": counter, "error_message": "too_long"}
         )
     if await message_exists(message):
         return templates.TemplateResponse(
-            "index.html", {"request": request, "counter": counter, "error_message": "duplicate"}
+            request, "index.html", {"counter": counter, "error_message": "duplicate"}
         )
 
     new_id = await save_counter(
@@ -301,7 +301,7 @@ async def increment(request: Request, message: str = Form("")):
         get_client_ip(request),
     )
     if new_id is None:
-        return templates.TemplateResponse("db_offline.html", {"request": request}, status_code=503)
+        return templates.TemplateResponse(request, "db_offline.html", {}, status_code=503)
 
     # Stuur Discord-melding op de achtergrond; blokkeer de response niet.
     asyncio.create_task(push_to_discord(new_id, message, timestamp))
@@ -313,8 +313,8 @@ async def overview(request: Request):
     """Toont een tabel met alle counts, van nieuwste naar oudste."""
     data = await get_all_counters()
     if data is None:
-        return templates.TemplateResponse("db_offline.html", {"request": request}, status_code=503)
-    return templates.TemplateResponse("overview.html", {"request": request, "data": data})
+        return templates.TemplateResponse(request, "db_offline.html", {}, status_code=503)
+    return templates.TemplateResponse(request, "overview.html", {"data": data})
 
 
 @app.post("/remove/{id}")
