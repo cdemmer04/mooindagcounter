@@ -52,8 +52,9 @@ Alle HTML-responses sturen `Cache-Control: no-store` zodat CDN's en browsers dyn
 
 ---
 
-### `GET /`
-Teller pagina.
+### `GET /` — Teller pagina
+
+Toont de huidige tellerstand en het invoerformulier.
 
 <details>
 <summary>Voorbeeld</summary>
@@ -66,8 +67,9 @@ curl https://mooindagcounter.nl/
 
 ---
 
-### `POST /increment`
-Nieuwe count toevoegen. Formulierveld `message` verplicht (max 300 tekens, uniek).
+### `POST /increment` — Nieuwe count toevoegen
+
+Formulierveld `message` is verplicht (max 300 tekens, uniek). Stuurt na opslaan een `303 See Other` redirect naar `/`. Valideert op leeg, te lang en duplicaat.
 
 <details>
 <summary>Voorbeeld</summary>
@@ -81,8 +83,9 @@ curl -X POST https://mooindagcounter.nl/increment \
 
 ---
 
-### `GET /overview`
-Overzicht van alle counts met verwijderknop per rij.
+### `GET /overview` — Overzicht (web UI)
+
+Toont een tabel van alle counts, van nieuwste naar oudste, met een verwijderknop per rij.
 
 <details>
 <summary>Voorbeeld</summary>
@@ -95,8 +98,9 @@ curl https://mooindagcounter.nl/overview
 
 ---
 
-### `POST /remove/{id}`
-Count verwijderen (via formulier in de web UI).
+### `POST /remove/{id}` — Count verwijderen (web UI)
+
+Verwijdert een count op basis van ID en stuurt door naar `/overview`. Wordt aangeroepen via de verwijderknop in het overzicht.
 
 <details>
 <summary>Voorbeeld</summary>
@@ -109,22 +113,9 @@ curl -X POST https://mooindagcounter.nl/remove/5
 
 ---
 
-### `GET /healthz`
-Statuscheck. Retourneert `{"status": "ok"}` als de database bereikbaar is.
+### `GET /api/counts` — Alle counts (JSON)
 
-<details>
-<summary>Voorbeeld</summary>
-
-```bash
-curl https://mooindagcounter.nl/healthz
-```
-
-</details>
-
----
-
-### `GET /api/counts`
-Alle counts ophalen als JSON-array.
+Geeft alle counts terug als JSON-array, gesorteerd van nieuwste naar oudste.
 
 <details>
 <summary>Voorbeeld</summary>
@@ -136,8 +127,8 @@ curl https://mooindagcounter.nl/api/counts
 Respons:
 ```json
 [
-  { "count": 15, "date": "2026-05-14", "message": "kanusje" },
-  { "count": 14, "date": "2026-05-14", "message": "kanus" }
+  { "count": 15, "message": "kanusje", "date": "2026-05-14" },
+  { "count": 14, "message": "kanus",   "date": "2026-05-14" }
 ]
 ```
 
@@ -145,8 +136,9 @@ Respons:
 
 ---
 
-### `GET /api/counts/{id}`
-Een count ophalen op basis van ID.
+### `GET /api/counts/{id}` — Specifieke count (JSON)
+
+Geeft een volledige count terug op basis van ID, inclusief tijdstip en IP-adres.
 
 <details>
 <summary>Voorbeeld</summary>
@@ -164,8 +156,9 @@ Respons:
 
 ---
 
-### `DELETE /api/counts/{id}`
-Count verwijderen via de API.
+### `DELETE /api/counts/{id}` — Count verwijderen (API)
+
+Verwijdert een count via de API. Equivalent van `POST /remove/{id}` in de web UI.
 
 <details>
 <summary>Voorbeeld</summary>
@@ -180,6 +173,38 @@ Respons:
 ```
 
 </details>
+
+---
+
+### `GET /healthz` — Statuscheck
+
+Retourneert `{"status": "ok"}` als de database bereikbaar is, anders `{"status": "db_unavailable"}` met HTTP 503.
+
+<details>
+<summary>Voorbeeld</summary>
+
+```bash
+curl https://mooindagcounter.nl/healthz
+```
+
+Respons:
+```json
+{ "status": "ok" }
+```
+
+</details>
+
+---
+
+### `GET /index` — Redirect
+
+Permanente `301` redirect naar `/` voor achterwaartse compatibiliteit.
+
+---
+
+### `GET /robots.txt`
+
+Serveert `static/robots.txt` op het verwachte root-pad.
 
 ---
 
