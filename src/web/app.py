@@ -62,10 +62,10 @@ async def get_pool() -> aiomysql.Pool | None:
     dan de webcontainer (o.a. bij Bunny Magic Containers met gedeelde namespace).
     """
     global _pool
-    if _pool:
+    if _pool is not None:
         return _pool
     async with _pool_lock:
-        if not _pool:
+        if _pool is None:
             _pool = await _create_pool()
     return _pool
 
@@ -75,7 +75,7 @@ async def lifespan(app: FastAPI):
     """Probeert de pool bij opstart aan te maken; sluit hem netjes af bij afsluiten."""
     await get_pool()
     yield
-    if _pool:
+    if _pool is not None:
         _pool.close()
         await _pool.wait_closed()
 
@@ -113,7 +113,7 @@ async def db_query(sql: str, params: tuple = ()) -> list | None:
     Geeft None terug bij een DB-fout of onbereikbare DB.
     """
     pool = await get_pool()
-    if not pool:
+    if pool is None:
         return None
     try:
         async with pool.acquire() as conn:
@@ -128,7 +128,7 @@ async def db_query(sql: str, params: tuple = ()) -> list | None:
 async def db_execute(sql: str, params: tuple = ()) -> bool:
     """Voert een niet-SELECT statement uit. Geeft True terug bij succes."""
     pool = await get_pool()
-    if not pool:
+    if pool is None:
         return False
     try:
         async with pool.acquire() as conn:
@@ -143,7 +143,7 @@ async def db_execute(sql: str, params: tuple = ()) -> bool:
 async def db_insert(sql: str, params: tuple = ()) -> int | None:
     """Voert een INSERT uit en geeft het nieuwe rij-ID terug."""
     pool = await get_pool()
-    if not pool:
+    if pool is None:
         return None
     try:
         async with pool.acquire() as conn:
@@ -357,7 +357,7 @@ async def get_api_count(id: int):
     entry = await get_counter(id)
     if not entry:
         return JSONResponse({"error": "Not found"}, status_code=404)
-    return JSONResponse(dict(entry))
+    return JSONResponse({k: v for k, v in entry.items() if k != "client_ip"})
 
 
 @app.delete("/api/counts/{id}")

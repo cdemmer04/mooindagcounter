@@ -37,8 +37,7 @@
     },
     {
       "matchUpdateTypes": ["minor"],
-      "automerge": true,
-      "automergeType": "pr"
+      "automerge": false
     },
     {
       "matchUpdateTypes": ["major"],

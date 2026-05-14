@@ -128,7 +128,7 @@ curl https://mooindagcounter.nl/api/counts/15
 
 Respons:
 ```json
-{ "id": 15, "message": "kanusje", "date": "2026-05-14", "time": "19:58:42", "client_ip": "1.2.3.4" }
+{ "id": 15, "message": "kanusje", "date": "2026-05-14", "time": "19:58:42" }
 ```
 
 </details>

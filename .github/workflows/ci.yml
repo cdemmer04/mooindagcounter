@@ -10,6 +10,9 @@ on:
       - ".github/workflows/ci.yml"
   pull_request:
     branches: [main]
+    paths:
+      - "src/**"
+      - ".github/workflows/ci.yml"
 
 jobs:
 
@@ -101,9 +104,9 @@ jobs:
           image-ref: scan-target:ci
           format: sarif
           output: trivy-results.sarif
-          # Geef alleen een fout bij HIGH en CRITICAL kwetsbaarheden.
+          # Geef alleen een fout bij HIGH en CRITICAL kwetsbaarheden; niet-blokkeerbaar op PRs.
           severity: HIGH,CRITICAL
-          exit-code: "1"
+          exit-code: ${{ github.event_name == 'push' && '1' || '0' }}
           ignore-unfixed: true   # Sla kwetsbaarheden over waarvoor nog geen fix beschikbaar is.
 
       - name: Upload Trivy-resultaten naar GitHub Security
