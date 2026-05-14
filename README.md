@@ -1,6 +1,6 @@
 # Mooindagcounter
 
-Mooindag! FastAPI-teller met MariaDB als backend, draait op Bunny.net Magic Containers.
+Mooindag! FastAPI-teller met MariaDB als backend, draait op Bunny.Met Magic Containers.
 
 ## Lokaal draaien
 
