@@ -1,22 +1,18 @@
 # Mooindagcounter - Web
 
-Mooindag! FastAPI-gebaseerde teller-app met MariaDB als backend.
-
-## Structuur
-
-- `app.py`: FastAPI-app en databaselaag
-- `requirements.txt`: Python-afhankelijkheden
-- `Dockerfile`: Container definitie voor `mooindagcounter-web`
-- `.env.example`: Voorbeeld omgevingsvariabelen
-- `templates/`: HTML-templates (Jinja2)
-- `static/`: CSS, afbeeldingen, manifest, robots.txt
+Mooindag! FastAPI-teller met MariaDB als backend.
 
 ## Lokaal draaien
 
+Kopieer het env-bestand en vul je waarden in:
+
 ```bash
-# Vanuit de repo root:
 cp src/web/.env.example .env
-# Vul je waarden in (in elk geval DB_PASSWORD en MARIADB_ROOT_PASSWORD)
+```
+
+Start de app:
+
+```bash
 docker compose up --build
 ```
 
@@ -24,19 +20,19 @@ App draait op `http://localhost:8080`.
 
 ## Omgevingsvariabelen
 
-```
-DB_HOST=localhost          # MariaDB hostnaam
-DB_PORT=3306               # MariaDB poort
-DB_USER=mooindagcounter    # DB gebruiker
-DB_PASSWORD=               # DB wachtwoord (verplicht)
-DB_NAME=mooindagcounter    # Databasenaam
-DISCORD_WEBHOOK_URL=       # Optioneel: Discord meldingen
-GUNICORN_WORKERS=2         # Aantal Gunicorn+Uvicorn workers
-```
+| Variabele | Standaard | Omschrijving |
+|---|---|---|
+| `DB_HOST` | `localhost` | MariaDB hostnaam |
+| `DB_PORT` | `3306` | MariaDB poort |
+| `DB_USER` | `mooindagcounter` | DB gebruiker |
+| `DB_PASSWORD` | _(verplicht)_ | DB wachtwoord |
+| `DB_NAME` | `mooindagcounter` | Databasenaam |
+| `DISCORD_WEBHOOK_URL` | _(leeg)_ | Optioneel: Discord meldingen |
+| `GUNICORN_WORKERS` | `2` | Aantal Gunicorn+Uvicorn workers |
 
 ## Database
 
-De app verwacht een `counts` tabel, automatisch aangemaakt via `src/db/create_db.sql` bij eerste opstart.
+Tabel `counts`, automatisch aangemaakt via `src/db/create_db.sql` bij eerste opstart.
 
 | Kolom | Type |
 |---|---|
@@ -48,7 +44,7 @@ De app verwacht een `counts` tabel, automatisch aangemaakt via `src/db/create_db
 
 ## Routes
 
-Alle HTML-responses sturen `Cache-Control: no-store` zodat CDN's en browsers dynamische pagina's nooit cachen.
+HTML-responses sturen `Cache-Control: no-store` zodat CDN's en browsers niets cachen.
 
 ---
 
@@ -69,7 +65,7 @@ curl https://mooindagcounter.nl/
 
 ### `POST /increment` — Nieuwe count toevoegen
 
-Formulierveld `message` is verplicht (max 300 tekens, uniek). Stuurt na opslaan een `303 See Other` redirect naar `/`. Valideert op leeg, te lang en duplicaat.
+Formulierveld `message` is verplicht (max 300 tekens, uniek). Redirect naar `/` na opslaan.
 
 <details>
 <summary>Voorbeeld</summary>
@@ -85,7 +81,7 @@ curl -X POST https://mooindagcounter.nl/increment \
 
 ### `GET /overview` — Overzicht (web UI)
 
-Toont een tabel van alle counts, van nieuwste naar oudste, met een verwijderknop per rij.
+Tabel van alle counts, nieuwste eerst, met verwijderknop per rij.
 
 <details>
 <summary>Voorbeeld</summary>
@@ -100,7 +96,7 @@ curl https://mooindagcounter.nl/overview
 
 ### `POST /remove/{id}` — Count verwijderen (web UI)
 
-Verwijdert een count op basis van ID en stuurt door naar `/overview`. Wordt aangeroepen via de verwijderknop in het overzicht.
+Verwijdert een count en stuurt door naar `/overview`.
 
 <details>
 <summary>Voorbeeld</summary>
@@ -115,7 +111,7 @@ curl -X POST https://mooindagcounter.nl/remove/5
 
 ### `GET /api/counts` — Alle counts (JSON)
 
-Geeft alle counts terug als JSON-array, gesorteerd van nieuwste naar oudste.
+Geeft alle counts terug als JSON-array, nieuwste eerst.
 
 <details>
 <summary>Voorbeeld</summary>
@@ -138,8 +134,6 @@ Respons:
 
 ### `GET /api/counts/{id}` — Specifieke count (JSON)
 
-Geeft een volledige count terug op basis van ID, inclusief tijdstip en IP-adres.
-
 <details>
 <summary>Voorbeeld</summary>
 
@@ -158,7 +152,7 @@ Respons:
 
 ### `DELETE /api/counts/{id}` — Count verwijderen (API)
 
-Verwijdert een count via de API. Equivalent van `POST /remove/{id}` in de web UI.
+Equivalent van `POST /remove/{id}` in de web UI.
 
 <details>
 <summary>Voorbeeld</summary>
@@ -178,7 +172,7 @@ Respons:
 
 ### `GET /healthz` — Statuscheck
 
-Retourneert `{"status": "ok"}` als de database bereikbaar is, anders `{"status": "db_unavailable"}` met HTTP 503.
+Geeft `{"status": "ok"}` als de database bereikbaar is, anders HTTP 503.
 
 <details>
 <summary>Voorbeeld</summary>
@@ -198,18 +192,16 @@ Respons:
 
 ### `GET /index` — Redirect
 
-Permanente `301` redirect naar `/` voor achterwaartse compatibiliteit.
+Permanente `301` redirect naar `/`.
 
 ---
 
 ### `GET /robots.txt`
 
-Serveert `static/robots.txt` op het verwachte root-pad.
+Serveert `static/robots.txt` op het root-pad.
 
 ---
 
 ## Deployment
 
-Het Docker image (`mooindagcounter-web`) wordt gebouwd vanuit deze map en gepusht naar GHCR via GitHub Actions. Combineer met het `mooindagcounter-db` image voor de database.
-
-De app draait als Gunicorn-proces met UvicornWorker (ASGI). Protocolonderhandeling met de browser loopt via Bunny.net (CDN). De interne verbinding van Bunny naar de container is HTTP/1.1, wat standaard is en niet gewijzigd hoeft te worden.
+Image wordt gebouwd en gepusht naar GHCR via GitHub Actions. Combineer met het `mooindagcounter-db` image voor de database. De app draait als Gunicorn+UvicornWorker (ASGI), HTTP/2 en HTTP/3 lopen via Bunny.net.
