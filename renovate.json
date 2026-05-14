@@ -4,6 +4,7 @@
   "forkProcessing": "enabled",
   "pinDigests": true,
   "labels": ["dependencies"],
+  "automerge": false,
   "enabledManagers": [
     "pip_requirements",
     "dockerfile",
@@ -28,6 +29,20 @@
     {
       "matchCategories": ["security"],
       "addLabels": ["security"]
+    },
+    {
+      "matchUpdateTypes": ["patch", "digest"],
+      "automerge": true,
+      "automergeType": "pr"
+    },
+    {
+      "matchUpdateTypes": ["minor"],
+      "automerge": true,
+      "automergeType": "pr"
+    },
+    {
+      "matchUpdateTypes": ["major"],
+      "automerge": false
     }
   ]
 }
