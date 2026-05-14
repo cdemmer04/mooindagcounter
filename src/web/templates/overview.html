@@ -41,9 +41,9 @@
                             <td>{{ row['date'] }}</td>
                             <td>{{ row['time'] }}</td>
                             <td>
-                                <form action="{{ url_for('remove_item', id=row['id']) }}" method="POST">
-                                    <button type="submit" class="btn btn-link text-danger p-0" aria-label="Verwijder bericht {{ row['id'] }}">Verwijder</button>
-                                </form>
+                                <button type="button" class="btn btn-link text-danger p-0"
+                                        onclick="deleteCount({{ row['id'] }})"
+                                        aria-label="Verwijder bericht {{ row['id'] }}">Verwijder</button>
                             </td>
                         </tr>
                         {% endfor %}
@@ -55,5 +55,11 @@
         </div>
         </div>
     </div>
+<script>
+async function deleteCount(id) {
+    await fetch('/api/counts/' + id, { method: 'DELETE' });
+    location.reload();
+}
+</script>
 </body>
 </html>

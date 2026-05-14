@@ -55,7 +55,7 @@ jobs:
 
       - name: Voer Bandit uit
         # -ll toont alleen medium- en high-severity bevindingen om ruis te beperken.
-        run: bandit -r src/web/app.py -ll
+        run: bandit -r src/web/ -ll
 
   # --- Kwetsbaarheidsscan Python-afhankelijkheden ---
   # pip-audit vergelijkt requirements.txt met de PyPA Advisory Database (GHSA/CVE).
@@ -108,7 +108,7 @@ jobs:
 
       - name: Upload Trivy-resultaten naar GitHub Security
         # Sla over als Code Scanning niet beschikbaar is (bijv. geen GitHub Advanced Security).
-        if: always() && github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        if: always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
         continue-on-error: true
         uses: github/codeql-action/upload-sarif@68bde559dea0fdcac2102bfdf6230c5f70eb485e # v4
         with:

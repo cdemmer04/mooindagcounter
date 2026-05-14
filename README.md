@@ -1,6 +1,6 @@
 # Mooindagcounter
 
-Mooindag! FastAPI-teller met MariaDB als backend, draait op Bunny.Met Magic Containers.
+Mooindag! FastAPI-teller met MariaDB als backend, draait op Bunny.net Magic Containers.
 
 ## Lokaal draaien
 
@@ -94,21 +94,6 @@ curl https://mooindagcounter.nl/overview
 
 ---
 
-### `POST /remove/{id}` — Count verwijderen (web UI)
-
-Verwijdert een count en stuurt door naar `/overview`.
-
-<details>
-<summary>Voorbeeld</summary>
-
-```bash
-curl -X POST https://mooindagcounter.nl/remove/5
-```
-
-</details>
-
----
-
 ### `GET /api/counts` — Alle counts (JSON)
 
 Geeft alle counts terug als JSON-array, nieuwste eerst.
@@ -123,8 +108,8 @@ curl https://mooindagcounter.nl/api/counts
 Respons:
 ```json
 [
-  { "count": 15, "message": "kanusje", "date": "2026-05-14" },
-  { "count": 14, "message": "kanus",   "date": "2026-05-14" }
+  { "id": 15, "message": "kanusje", "date": "2026-05-14" },
+  { "id": 14, "message": "kanus",   "date": "2026-05-14" }
 ]
 ```
 
@@ -150,9 +135,9 @@ Respons:
 
 ---
 
-### `DELETE /api/counts/{id}` — Count verwijderen (API)
+### `DELETE /api/counts/{id}` — Count verwijderen
 
-Equivalent van `POST /remove/{id}` in de web UI.
+Verwijdert een count. De web UI (overzichtpagina) gebruikt ook dit endpoint via een `fetch`-aanroep.
 
 <details>
 <summary>Voorbeeld</summary>
@@ -187,12 +172,6 @@ Respons:
 ```
 
 </details>
-
----
-
-### `GET /index` — Redirect
-
-Permanente `301` redirect naar `/`.
 
 ---
 

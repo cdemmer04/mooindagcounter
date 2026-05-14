@@ -30,6 +30,9 @@ MAX_MESSAGE_LENGTH = 300
 _pool: aiomysql.Pool | None = None
 _pool_lock = asyncio.Lock()
 
+# Sterke referenties naar achtergrondtaken zodat de GC ze niet vroegtijdig verwijdert.
+_background_tasks: set[asyncio.Task] = set()
+
 
 # --- Levenscyclus van de applicatie ---
 
@@ -77,7 +80,7 @@ async def lifespan(app: FastAPI):
         await _pool.wait_closed()
 
 
-app = FastAPI(lifespan=lifespan, docs_url="/docs", redoc_url=None)
+app = FastAPI(lifespan=lifespan, docs_url=None, openapi_url=None, redoc_url=None)
 templates = Jinja2Templates(directory="templates")
 
 # Serveer bestanden uit de static/-map op het /static/-pad (CSS, afbeeldingen, favicon).
@@ -156,14 +159,10 @@ async def db_insert(sql: str, params: tuple = ()) -> int | None:
 
 @app.exception_handler(StarletteHTTPException)
 async def http_exception(request: Request, exc: StarletteHTTPException):
-    """
-    Vangt HTTP-fouten op (404, 405, etc.).
-    404 krijgt een JSON-respons; alle andere HTTP-fouten tonen de offline-pagina.
-    """
-    if exc.status_code == 404:
-        return JSONResponse({"error": "Not found"}, status_code=404)
-    return templates.TemplateResponse(
-        request, "db_offline.html", {}, status_code=exc.status_code
+    """Vangt HTTP-fouten op en geeft altijd JSON terug."""
+    return JSONResponse(
+        {"error": exc.detail or "HTTP error"},
+        status_code=exc.status_code,
     )
 
 
@@ -266,12 +265,6 @@ async def index(request: Request):
     return templates.TemplateResponse(request, "index.html", {"counter": counter})
 
 
-@app.get("/index")
-async def index_redirect():
-    """Permanente redirect van /index naar / voor achterwaartse compatibiliteit."""
-    return RedirectResponse(url="/", status_code=301)
-
-
 @app.post("/increment")
 async def increment(request: Request, message: str = Form("")):
     """
@@ -312,7 +305,9 @@ async def increment(request: Request, message: str = Form("")):
         return templates.TemplateResponse(request, "db_offline.html", {}, status_code=503)
 
     # Stuur Discord-melding op de achtergrond; blokkeer de response niet.
-    asyncio.create_task(push_to_discord(new_id, message, timestamp))
+    task = asyncio.create_task(push_to_discord(new_id, message, timestamp))
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
     return RedirectResponse(url="/", status_code=303)
 
 
@@ -323,13 +318,6 @@ async def overview(request: Request):
     if data is None:
         return templates.TemplateResponse(request, "db_offline.html", {}, status_code=503)
     return templates.TemplateResponse(request, "overview.html", {"data": data})
-
-
-@app.post("/remove/{id}")
-async def remove_item(id: int):
-    """Verwijdert een count op basis van ID en stuurt terug naar het overzicht."""
-    await db_execute("DELETE FROM counts WHERE id = %s", (id,))
-    return RedirectResponse(url="/overview", status_code=303)
 
 
 @app.get("/robots.txt")
@@ -359,7 +347,7 @@ async def api_counts():
     if counters is None:
         return JSONResponse({"error": "Database unavailable"}, status_code=503)
     return JSONResponse(
-        [{"count": c["id"], "message": c["message"], "date": c["date"]} for c in counters]
+        [{"id": c["id"], "message": c["message"], "date": c["date"]} for c in counters]
     )
 
 
