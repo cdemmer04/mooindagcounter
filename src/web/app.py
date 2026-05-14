@@ -1,157 +1,197 @@
-from flask import Flask, render_template, request, redirect, url_for, jsonify
+import asyncio
+import logging
+import os
+from contextlib import asynccontextmanager
 from datetime import datetime
 from zoneinfo import ZoneInfo
-import os
-import threading
-import requests
-from dotenv import load_dotenv
-import pymysql
-from pymysql.cursors import DictCursor
-from dbutils.pooled_db import PooledDB
-from werkzeug.exceptions import HTTPException
 
-app = Flask(__name__, static_folder="static")
+import aiomysql
+import httpx
+from dotenv import load_dotenv
+from fastapi import FastAPI, Form, Request
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
+from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.middleware.base import BaseHTTPMiddleware
+
+# Laad omgevingsvariabelen uit .env (alleen lokaal; in productie komen ze via Docker env).
 load_dotenv("./.env")
 
+logger = logging.getLogger("uvicorn.error")
+
+# Tijdzone voor het opslaan van datum/tijd bij elke increment.
 AMS = ZoneInfo(os.getenv("TZ", "Europe/Amsterdam"))
+
+# Maximale berichtlengte om de database te beschermen tegen oversized invoer.
 MAX_MESSAGE_LENGTH = 300
 
+# Globale verbindingspool; gedeeld tussen alle requests.
+_pool: aiomysql.Pool | None = None
+_pool_lock = asyncio.Lock()
 
-# --- Verbindingspool ---
-
-_pool: PooledDB | None = None
-_pool_lock = threading.Lock()
+# Sterke referenties naar achtergrondtaken zodat de GC ze niet vroegtijdig verwijdert.
+_background_tasks: set[asyncio.Task] = set()
 
 
-def get_pool() -> PooledDB:
+# --- Levenscyclus van de applicatie ---
+
+async def _create_pool() -> aiomysql.Pool | None:
+    """Maakt de verbindingspool aan. Geeft None terug als de DB niet bereikbaar is."""
+    try:
+        return await aiomysql.create_pool(
+            host=os.getenv("DB_HOST", "localhost"),
+            port=int(os.getenv("DB_PORT", "3306")),
+            user=os.getenv("DB_USER", "root"),
+            password=os.getenv("DB_PASSWORD", ""),
+            db=os.getenv("DB_NAME", "mooindagcounter"),
+            autocommit=True,
+            cursorclass=aiomysql.DictCursor,
+            minsize=2,
+            maxsize=10,
+        )
+    except Exception as e:
+        logger.warning("DB-pool aanmaken mislukt: %s", e)
+        return None
+
+
+async def get_pool() -> aiomysql.Pool | None:
+    """
+    Geeft de verbindingspool terug, of maakt hem aan als die er nog niet is.
+    Lazy initialisatie zodat de app blijft werken als de DB trager opstart
+    dan de webcontainer (o.a. bij Bunny Magic Containers met gedeelde namespace).
+    """
     global _pool
-    if _pool is None:
-        with _pool_lock:
-            if _pool is None:  # dubbele check zodat de pool maar één keer aangemaakt wordt
-                _pool = PooledDB(
-                    creator=pymysql,
-                    maxconnections=10,
-                    mincached=2,
-                    host=os.getenv("DB_HOST", "localhost"),
-                    port=int(os.getenv("DB_PORT", "3306")),
-                    user=os.getenv("DB_USER", "root"),
-                    password=os.getenv("DB_PASSWORD", ""),
-                    database=os.getenv("DB_NAME", "mooindagcounter"),
-                    cursorclass=DictCursor,
-                    autocommit=True,
-                )
+    if _pool is not None:
+        return _pool
+    async with _pool_lock:
+        if _pool is None:
+            _pool = await _create_pool()
     return _pool
 
 
-def get_connection():
-    return get_pool().connection()
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Probeert de pool bij opstart aan te maken; sluit hem netjes af bij afsluiten."""
+    await get_pool()
+    yield
+    if _pool is not None:
+        _pool.close()
+        await _pool.wait_closed()
 
 
-# Mooindag... Pool alvast aanmaken zodat een verkeerde config gelijk opvalt.
-with app.app_context():
-    try:
-        get_pool()
-    except Exception as e:
-        app.logger.warning("Could not initialise DB pool at startup: %s", e)
+app = FastAPI(lifespan=lifespan, docs_url=None, openapi_url=None, redoc_url=None)
+templates = Jinja2Templates(directory="templates")
+
+# Serveer bestanden uit de static/-map op het /static/-pad (CSS, afbeeldingen, favicon).
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
+# --- Cache-middleware ---
+
+class NoCacheHTMLMiddleware(BaseHTTPMiddleware):
+    """
+    Voegt 'Cache-Control: no-store' toe aan elke HTML-response.
+    Zonder deze header slaat Bunny.net (en andere CDN's/browsers) pagina's op,
+    waardoor de teller een verouderde stand toont na een nieuwe invoer.
+    JSON- en statische bestanden worden niet geraakt door deze middleware.
+    """
+    async def dispatch(self, request, call_next):
+        response = await call_next(request)
+        if "text/html" in response.headers.get("content-type", ""):
+            response.headers["cache-control"] = "no-store"
+        return response
+
+
+app.add_middleware(NoCacheHTMLMiddleware)
 
 
 # --- Database hulpfuncties --- Mooindag!
 
-def db_query(sql: str, params: tuple = ()) -> list | None:
-    """SELECT uitvoeren en alle rijen teruggeven. None bij een DB-fout."""
-    conn = None
-    try:
-        conn = get_connection()
-        with conn.cursor() as cur:
-            cur.execute(sql, params)
-            return cur.fetchall()
-    except Exception as e:
-        app.logger.error("DB query error: %s", e)
+async def db_query(sql: str, params: tuple = ()) -> list | None:
+    """
+    Voert een SELECT-query uit en geeft alle rijen terug als lijst van dicts.
+    Geeft None terug bij een DB-fout of onbereikbare DB.
+    """
+    pool = await get_pool()
+    if pool is None:
         return None
-    finally:
-        if conn:
-            try:
-                conn.close()
-            except Exception:
-                pass
-
-
-def db_execute(sql: str, params: tuple = ()) -> bool:
-    """Niet-SELECT statement uitvoeren. True als het lukt, False bij fout."""
-    conn = None
     try:
-        conn = get_connection()
-        with conn.cursor() as cur:
-            cur.execute(sql, params)
+        async with pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(sql, params)
+                return await cur.fetchall()
+    except Exception as e:
+        logger.error("DB query fout: %s", e)
+        return None
+
+
+async def db_execute(sql: str, params: tuple = ()) -> bool:
+    """Voert een niet-SELECT statement uit. Geeft True terug bij succes."""
+    pool = await get_pool()
+    if pool is None:
+        return False
+    try:
+        async with pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(sql, params)
         return True
     except Exception as e:
-        app.logger.error("DB execute error: %s", e)
+        logger.error("DB execute fout: %s", e)
         return False
-    finally:
-        if conn:
-            try:
-                conn.close()
-            except Exception:
-                pass
 
 
-def db_insert(sql: str, params: tuple = ()) -> int | None:
-    """INSERT uitvoeren en het nieuwe rij-ID teruggeven. None bij fout."""
-    conn = None
-    try:
-        conn = get_connection()
-        with conn.cursor() as cur:
-            cur.execute(sql, params)
-            return cur.lastrowid
-    except Exception as e:
-        app.logger.error("DB insert error: %s", e)
+async def db_insert(sql: str, params: tuple = ()) -> int | None:
+    """Voert een INSERT uit en geeft het nieuwe rij-ID terug."""
+    pool = await get_pool()
+    if pool is None:
         return None
-    finally:
-        if conn:
-            try:
-                conn.close()
-            except Exception:
-                pass
+    try:
+        async with pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(sql, params)
+                return cur.lastrowid
+    except Exception as e:
+        logger.error("DB insert fout: %s", e)
+        return None
 
 
 # --- Foutafhandeling --- Mooindag...
 
-@app.errorhandler(404)
-def not_found(e):
-    return jsonify({"error": "Not found"}), 404
+@app.exception_handler(StarletteHTTPException)
+async def http_exception(request: Request, exc: StarletteHTTPException):
+    """Vangt HTTP-fouten op en geeft altijd JSON terug."""
+    return JSONResponse(
+        {"error": exc.detail or "HTTP error"},
+        status_code=exc.status_code,
+    )
 
 
-@app.errorhandler(500)
-def internal_error(e):
-    app.logger.error("Unhandled 500: %s", e)
-    return render_template("db_offline.html"), 500
-
-
-@app.errorhandler(503)
-def service_unavailable(e):
-    return render_template("db_offline.html"), 503
-
-
-@app.errorhandler(Exception)
-def unhandled_exception(e):
-    # HTTP-fouten hebben hun eigen handler hierboven.
-    if isinstance(e, HTTPException):
-        return e
-    app.logger.exception("Unhandled exception: %s", e)
-    return render_template("db_offline.html"), 500
+@app.exception_handler(Exception)
+async def unhandled_exception(request: Request, exc: Exception):
+    """
+    Vangnet voor alle onverwachte fouten die niet als HTTP-uitzondering zijn afgehandeld.
+    Logt de fout en toont de offline-pagina met een 500-status.
+    """
+    logger.error("Onverwachte fout: %s", exc)
+    return templates.TemplateResponse(
+        request, "db_offline.html", {}, status_code=500
+    )
 
 
 # --- Applicatielogica --- Mooindag!
 
-def push_to_discord(counter: int, message: str, timestamp: datetime) -> None:
-    # Achtergrondthread zodat de response niet wacht op Discord.
+async def push_to_discord(counter: int, message: str, timestamp: datetime) -> None:
+    """
+    Stuurt een melding naar het Discord-webhook na een succesvolle increment.
+    Wordt aangeroepen via asyncio.create_task() zodat de gebruiker niet hoeft
+    te wachten op de Discord-response voordat de redirect plaatsvindt.
+    """
     url = os.getenv("DISCORD_WEBHOOK_URL")
     if not url:
         return
-
-    def _send() -> None:
-        try:
-            requests.post(
+    try:
+        async with httpx.AsyncClient(timeout=5) as client:
+            await client.post(
                 url,
                 json={
                     "content": (
@@ -161,147 +201,169 @@ def push_to_discord(counter: int, message: str, timestamp: datetime) -> None:
                         f"{message.capitalize()}"
                     )
                 },
-                timeout=5,
             )
-        except requests.RequestException as e:
-            app.logger.warning("Discord webhook failed: %s", e)
-
-    threading.Thread(target=_send, daemon=True).start()
+    except httpx.RequestError as e:
+        logger.warning("Discord webhook mislukt: %s", e)
 
 
-def get_client_ip() -> str:
-    # X-Forwarded-For kan een keten van IPs bevatten; de eerste is de echte afzender.
+def get_client_ip(request: Request) -> str:
+    """
+    Haalt het echte IP-adres van de bezoeker op.
+    Bunny.net stuurt de keten van proxies mee in X-Forwarded-For;
+    de eerste waarde daarin is het originele client-IP.
+    """
     forwarded_for = request.headers.get("X-Forwarded-For")
     if forwarded_for:
         return forwarded_for.split(",")[0].strip()
-    return request.remote_addr or "unknown"
+    return request.client.host if request.client else "unknown"
 
 
-def save_counter(message: str, date, time, client_ip: str) -> int | None:
-    """Nieuwe count opslaan en het automatisch toegewezen ID teruggeven. None bij fout."""
-    return db_insert(
+async def save_counter(message: str, date, time, client_ip: str) -> int | None:
+    """Sla een nieuwe count op en geef het automatisch toegewezen ID terug."""
+    return await db_insert(
         "INSERT INTO counts (message, date, time, client_ip) VALUES (%s, %s, %s, %s)",
         (message, str(date), str(time), client_ip),
     )
 
 
-def get_counter(entry_id: int) -> dict | None:
-    rows = db_query("SELECT * FROM counts WHERE id = %s", (entry_id,))
+async def get_counter(entry_id: int) -> dict | None:
+    """Haal een specifieke count op via ID, of None als die niet bestaat."""
+    rows = await db_query("SELECT * FROM counts WHERE id = %s", (entry_id,))
     return rows[0] if rows else None
 
 
-def get_all_counters() -> list | None:
-    return db_query("SELECT id, message, date, time FROM counts ORDER BY id DESC")
+async def get_all_counters() -> list | None:
+    """Haal alle counts op, gesorteerd van nieuwste naar oudste."""
+    return await db_query("SELECT id, message, date, time FROM counts ORDER BY id DESC")
 
 
-def get_latest_counter() -> int | None:
-    """Huidige tellerstand teruggeven (hoogste ID). None als de DB niet bereikbaar is."""
-    rows = db_query("SELECT id FROM counts ORDER BY id DESC LIMIT 1")
+async def get_latest_counter() -> int | None:
+    """
+    Geeft de huidige tellerstand terug: het hoogste ID in de tabel.
+    Geeft 0 terug als de tabel leeg is, None als de DB niet bereikbaar is.
+    """
+    rows = await db_query("SELECT id FROM counts ORDER BY id DESC LIMIT 1")
     if rows is None:
         return None
     return rows[0]["id"] if rows else 0
 
 
-def message_exists(message: str) -> bool:
-    rows = db_query("SELECT 1 FROM counts WHERE message = %s LIMIT 1", (message,))
+async def message_exists(message: str) -> bool:
+    """Controleert of een bericht al eerder is ingevoerd (duplicaatbeveiliging)."""
+    rows = await db_query("SELECT 1 FROM counts WHERE message = %s LIMIT 1", (message,))
     return bool(rows)
 
 
 # --- Routes --- Mooindag...
 
-@app.route("/overview")
-def overview():
-    data = get_all_counters()
-    if data is None:
-        return render_template("db_offline.html"), 503
-    return render_template("overview.html", data=data)
-
-
-@app.route("/increment", methods=["POST"])
-def increment():
-    timestamp = datetime.now(tz=AMS)
-    counter = get_latest_counter()
+@app.get("/")
+async def index(request: Request):
+    """Toont de hoofdpagina met de huidige tellerstand."""
+    counter = await get_latest_counter()
     if counter is None:
-        return render_template("db_offline.html"), 503
+        return templates.TemplateResponse(request, "db_offline.html", {}, status_code=503)
+    return templates.TemplateResponse(request, "index.html", {"counter": counter})
 
-    message = request.form.get("message", "").strip().lower()
 
+@app.post("/increment")
+async def increment(request: Request, message: str = Form("")):
+    """
+    Verwerkt een nieuwe increment-invoer vanuit het formulier.
+    Valideert het bericht (niet leeg, niet te lang, niet al eerder ingevoerd),
+    slaat het op in de DB en stuurt een Discord-melding op de achtergrond.
+    Gebruik status 303 (See Other) zodat de browser na de redirect een GET doet
+    in plaats van de POST te herhalen bij het verversen van de pagina.
+    """
+    timestamp = datetime.now(tz=AMS)
+    counter = await get_latest_counter()
+    if counter is None:
+        return templates.TemplateResponse(request, "db_offline.html", {}, status_code=503)
+
+    message = message.strip().lower()
+
+    # Valideer invoer voordat de DB wordt benaderd.
     if not message:
-        return render_template("index.html", counter=counter, error_message="empty")
-
+        return templates.TemplateResponse(
+            request, "index.html", {"counter": counter, "error_message": "empty"}
+        )
     if len(message) > MAX_MESSAGE_LENGTH:
-        return render_template("index.html", counter=counter, error_message="too_long")
+        return templates.TemplateResponse(
+            request, "index.html", {"counter": counter, "error_message": "too_long"}
+        )
+    if await message_exists(message):
+        return templates.TemplateResponse(
+            request, "index.html", {"counter": counter, "error_message": "duplicate"}
+        )
 
-    if message_exists(message):
-        return render_template("index.html", counter=counter, error_message="duplicate")
-
-    new_id = save_counter(
+    new_id = await save_counter(
         message,
         timestamp.date(),
         timestamp.time().replace(microsecond=0),
-        get_client_ip(),
+        get_client_ip(request),
     )
     if new_id is None:
-        return render_template("db_offline.html"), 503
+        return templates.TemplateResponse(request, "db_offline.html", {}, status_code=503)
 
-    push_to_discord(new_id, message, timestamp)
-    return redirect(url_for("index"))
-
-
-@app.route("/remove/<int:id>", methods=["POST"])
-def remove_item(id: int):
-    db_execute("DELETE FROM counts WHERE id = %s", (id,))
-    return redirect(url_for("overview"))
+    # Stuur Discord-melding op de achtergrond; blokkeer de response niet.
+    task = asyncio.create_task(push_to_discord(new_id, message, timestamp))
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
+    return RedirectResponse(url="/", status_code=303)
 
 
-@app.route("/robots.txt")
-def robots_txt():
-    from flask import send_from_directory
-    return send_from_directory("static", "robots.txt", mimetype="text/plain")
+@app.get("/overview")
+async def overview(request: Request):
+    """Toont een tabel met alle counts, van nieuwste naar oudste."""
+    data = await get_all_counters()
+    if data is None:
+        return templates.TemplateResponse(request, "db_offline.html", {}, status_code=503)
+    return templates.TemplateResponse(request, "overview.html", {"data": data})
 
 
-@app.route("/")
-def index():
-    counter = get_latest_counter()
-    if counter is None:
-        return render_template("db_offline.html"), 503
-    return render_template("index.html", counter=counter)
+@app.get("/robots.txt")
+async def robots_txt():
+    """Serveert robots.txt vanuit de static/-map op het verwachte root-pad."""
+    return FileResponse("static/robots.txt", media_type="text/plain")
 
 
-@app.route("/index")
-def index_redirect():
-    return redirect(url_for("index"))
-
-
-@app.route("/healthz")
-def healthz():
-    rows = db_query("SELECT 1")
+@app.get("/healthz")
+async def healthz():
+    """
+    Statuscheck voor de loadbalancer en uptime-monitor.
+    Geeft 200 + {"status": "ok"} als de DB bereikbaar is, anders 503.
+    """
+    rows = await db_query("SELECT 1")
     if rows is not None:
-        return jsonify({"status": "ok"}), 200
-    return jsonify({"status": "db_unavailable"}), 503
+        return JSONResponse({"status": "ok"})
+    return JSONResponse({"status": "db_unavailable"}, status_code=503)
 
 
-@app.route("/api/counts", methods=["GET"])
-def api_counts():
-    counters = get_all_counters()
+# --- JSON API --- Mooindag!
+
+@app.get("/api/counts")
+async def api_counts():
+    """Geeft alle counts terug als JSON-array, gesorteerd van nieuwste naar oudste."""
+    counters = await get_all_counters()
     if counters is None:
-        return jsonify({"error": "Database unavailable"}), 503
-    return jsonify(
-        [{"count": c["id"], "message": c["message"], "date": c["date"]} for c in counters]
+        return JSONResponse({"error": "Database unavailable"}, status_code=503)
+    return JSONResponse(
+        [{"id": c["id"], "message": c["message"], "date": c["date"]} for c in counters]
     )
 
 
-@app.route("/api/counts/<int:id>", methods=["GET", "DELETE"])
-def api_count(id: int):
-    if request.method == "GET":
-        entry = get_counter(id)
-        return jsonify(entry) if entry else (jsonify({"error": "Not found"}), 404)
+@app.get("/api/counts/{id}")
+async def get_api_count(id: int):
+    """Geeft een specifieke count terug als JSON op basis van ID."""
+    entry = await get_counter(id)
+    if not entry:
+        return JSONResponse({"error": "Not found"}, status_code=404)
+    return JSONResponse({k: v for k, v in entry.items() if k != "client_ip"})
 
-    ok = db_execute("DELETE FROM counts WHERE id = %s", (id,))
+
+@app.delete("/api/counts/{id}")
+async def delete_api_count(id: int):
+    """Verwijdert een count via de API. Geeft 503 terug als de DB niet bereikbaar is."""
+    ok = await db_execute("DELETE FROM counts WHERE id = %s", (id,))
     if not ok:
-        return jsonify({"error": "Database unavailable"}), 503
-    return jsonify({"message": f"Record {id} deleted"}), 200
-
-
-if __name__ == "__main__":
-    app.run(debug=False, host="0.0.0.0", port=8080)
+        return JSONResponse({"error": "Database unavailable"}, status_code=503)
+    return JSONResponse({"message": f"Record {id} deleted"})

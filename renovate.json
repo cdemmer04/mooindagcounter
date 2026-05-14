@@ -3,31 +3,46 @@
   "extends": ["config:recommended"],
   "forkProcessing": "enabled",
   "pinDigests": true,
+  "labels": ["dependencies"],
+  "automerge": false,
   "enabledManagers": [
     "pip_requirements",
     "dockerfile",
     "docker-compose",
-    "github-actions",
-    "custom.regex"
+    "github-actions"
   ],
   "packageRules": [
     {
-      "matchManagers": ["github-actions"],
-      "pinDigests": true
-    }
-  ],
-  "customManagers": [
+      "matchManagers": ["pip_requirements"],
+      "addLabels": ["python"]
+    },
     {
-      "customType": "regex",
-      "managerFilePatterns": [
-        "/src/web/edge-script/rate-limit\\.js$/"
-      ],
-      "matchStrings": [
-        "edgescript-sdk@(?<currentValue>[0-9]+\\.[0-9]+\\.[0-9]+)"
-      ],
-      "depNameTemplate": "@bunny.net/edgescript-sdk",
-      "datasourceTemplate": "npm"
+      "matchManagers": ["dockerfile", "docker-compose"],
+      "addLabels": ["docker"],
+      "pinDigests": true
+    },
+    {
+      "matchManagers": ["github-actions"],
+      "addLabels": ["github-actions"],
+      "pinDigests": true
+    },
+    {
+      "matchCategories": ["security"],
+      "addLabels": ["security"]
+    },
+    {
+      "matchUpdateTypes": ["patch", "digest"],
+      "automerge": true,
+      "automergeType": "pr"
+    },
+    {
+      "matchUpdateTypes": ["minor"],
+      "automerge": true,
+      "automergeType": "pr"
+    },
+    {
+      "matchUpdateTypes": ["major"],
+      "automerge": false
     }
   ]
 }
-

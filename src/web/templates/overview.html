@@ -4,18 +4,20 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Overzicht</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='bootstrap.min.css') }}">
-    <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}">
-    <link rel="icon" type="image/png" href="{{ url_for('static', filename='img/favicon/favicon-96x96.png') }}" sizes="96x96" />
-    <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='img/favicon/favicon.svg') }}" />
-    <link rel="shortcut icon" href="{{ url_for('static', filename='img/favicon/favicon.ico') }}" />
-    <link rel="apple-touch-icon" sizes="180x180" href="{{ url_for('static', filename='img/favicon/apple-touch-icon.png') }}" />
+    <link rel="stylesheet" href="{{ url_for('static', path='bootstrap.min.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', path='app.css') }}">
+    <link rel="icon" type="image/png" href="{{ url_for('static', path='img/favicon/favicon-96x96.png') }}" sizes="96x96" />
+    <link rel="icon" type="image/svg+xml" href="{{ url_for('static', path='img/favicon/favicon.svg') }}" />
+    <link rel="shortcut icon" href="{{ url_for('static', path='img/favicon/favicon.ico') }}" />
+    <link rel="apple-touch-icon" sizes="180x180" href="{{ url_for('static', path='img/favicon/apple-touch-icon.png') }}" />
     <meta name="apple-mobile-web-app-title" content="Mooindagcounter" />
-    <link rel="manifest" href="{{ url_for('static', filename='img/favicon/site.webmanifest') }}" />
+    <link rel="manifest" href="{{ url_for('static', path='img/favicon/site.webmanifest') }}" />
 </head>
 <!-- Mooindag... -->
-<body>
-    <div class="container my-4">
+<body class="d-flex align-items-start min-vh-100">
+    <div class="container py-4">
+        <div class="row justify-content-center">
+        <div class="col-12 col-lg-10">
         <div class="card shadow p-4">
             <h1 class="mb-3">Overzicht</h1>
             <p class="text-danger fst-italic mb-1">Waarschuwing! Op deze webpagina bevinden zich mogelijk uitspraken die het daglicht niet kunnen verdragen. Betreden op eigen risico.</p>
@@ -39,9 +41,9 @@
                             <td>{{ row['date'] }}</td>
                             <td>{{ row['time'] }}</td>
                             <td>
-                                <form action="{{ url_for('remove_item', id=row['id']) }}" method="POST">
-                                    <button type="submit" class="btn btn-link text-danger p-0" aria-label="Verwijder bericht {{ row['id'] }}">Verwijder</button>
-                                </form>
+                                <button type="button" class="btn btn-link text-danger p-0"
+                                        onclick="deleteCount({{ row['id'] }})"
+                                        aria-label="Verwijder bericht {{ row['id'] }}">Verwijder</button>
                             </td>
                         </tr>
                         {% endfor %}
@@ -50,6 +52,14 @@
             </div>
             <a class="btn btn-success" href="{{ url_for('index') }}">Terug naar counter</a>
         </div>
+        </div>
+        </div>
     </div>
+<script>
+async function deleteCount(id) {
+    await fetch('/api/counts/' + id, { method: 'DELETE' });
+    location.reload();
+}
+</script>
 </body>
 </html>
