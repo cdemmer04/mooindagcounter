@@ -1,9 +1,15 @@
 /* Achtergrondafbeelding voor alle pagina's */
+html {
+    background-color: #031a10;
+}
+
 body {
+    min-height: 100vh;
     background-image: url("img/Background.svg");
     background-size: cover;
     background-repeat: no-repeat;
-    background-position: center;
+    background-position: center center;
+    background-color: #031a10;
 }
 
 /* Huismerk teal-kleur (#009c82) – alle Bootstrap btn-success varianten */

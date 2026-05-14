@@ -1,15 +1,14 @@
 #!/bin/sh
-# Gunicorn direct opstarten.
-# Als de DB er niet is, toont de app gewoon db_offline.html.
-# /healthz geeft aan of de DB bereikbaar is.
+# Mooindag! Gunicorn + UvicornWorker (ASGI) opstarten.
 set -e
 
 export TZ="${TZ:-Europe/Amsterdam}"
 export HOME=/tmp
 
-echo "Mooindag! Gunicorn starten (TZ=${TZ})..."
+echo "Mooindag! Gunicorn+Uvicorn starten (TZ=${TZ})..."
 
 exec gunicorn app:app \
+    -k uvicorn.workers.UvicornWorker \
     --bind "0.0.0.0:8080" \
     --workers "${GUNICORN_WORKERS:-2}" \
     --timeout 30 \

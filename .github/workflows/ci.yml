@@ -1,0 +1,114 @@
+name: Code kwaliteit en veiligheidsscans
+
+# Draait bij elke push naar main en bij pull requests.
+# Zo worden problemen gevangen voordat ze in productie belanden.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/**"
+      - ".github/workflows/ci.yml"
+  pull_request:
+    branches: [main]
+
+jobs:
+
+  # --- Linting ---
+  # Controleert Python-code op stijl- en kwaliteitsfouten met Ruff.
+  # Ruff is de moderne vervanger van flake8/pylint en is aanzienlijk sneller.
+  lint:
+    name: Linting (Ruff)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Haal broncode op
+        uses: actions/checkout@v4
+
+      - name: Stel Python in
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      - name: Installeer Ruff
+        run: pip install ruff
+
+      - name: Voer Ruff uit
+        # Controleert stijl en importvolgorde; geeft een fout bij overtredingen.
+        run: ruff check src/web/
+
+  # --- Statische beveiligingsanalyse (SAST) ---
+  # Bandit scant Python-broncode op veelvoorkomende beveiligingsproblemen,
+  # zoals SQL-injectie, hardgecodeerde wachtwoorden en onveilige aanroepen.
+  bandit:
+    name: Beveiligingsanalyse broncode (Bandit)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Haal broncode op
+        uses: actions/checkout@v4
+
+      - name: Stel Python in
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      - name: Installeer Bandit
+        run: pip install bandit
+
+      - name: Voer Bandit uit
+        # -ll toont alleen medium- en high-severity bevindingen om ruis te beperken.
+        run: bandit -r src/web/app.py -ll
+
+  # --- Kwetsbaarheidsscan Python-afhankelijkheden ---
+  # pip-audit vergelijkt requirements.txt met de PyPA Advisory Database (GHSA/CVE).
+  # Geeft een fout als een afhankelijkheid een bekende kwetsbaarheid heeft.
+  pip-audit:
+    name: Kwetsbaarheidsscan dependencies (pip-audit)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Haal broncode op
+        uses: actions/checkout@v4
+
+      - name: Stel Python in
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      - name: Installeer pip-audit
+        run: pip install pip-audit
+
+      - name: Scan dependencies op kwetsbaarheden
+        run: pip-audit -r src/web/requirements.txt
+
+  # --- Container image scan ---
+  # Trivy bouwt het Docker-image en scant het op bekende CVE's in
+  # zowel OS-pakketten (Debian/Alpine) als Python-afhankelijkheden.
+  # Resultaten worden als SARIF geupload naar GitHub Security (tabblad "Security > Code scanning").
+  trivy:
+    name: Container image scan (Trivy)
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write   # Nodig voor het uploaden van SARIF naar GitHub Security.
+      contents: read
+    steps:
+      - name: Haal broncode op
+        uses: actions/checkout@v4
+
+      - name: Bouw Docker image voor scan
+        run: docker build -t scan-target:ci ./src/web
+
+      - name: Scan image met Trivy
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: scan-target:ci
+          format: sarif
+          output: trivy-results.sarif
+          # Geef alleen een fout bij HIGH en CRITICAL kwetsbaarheden.
+          severity: HIGH,CRITICAL
+          exit-code: "1"
+          ignore-unfixed: true   # Sla kwetsbaarheden over waarvoor nog geen fix beschikbaar is.
+
+      - name: Upload Trivy-resultaten naar GitHub Security
+        # Uploadt altijd, ook als Trivy een fout rapporteert, zodat bevindingen zichtbaar blijven.
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-results.sarif
