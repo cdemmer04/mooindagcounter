@@ -3,6 +3,7 @@
   "extends": ["config:recommended"],
   "forkProcessing": "enabled",
   "pinDigests": true,
+  "labels": ["dependencies"],
   "enabledManagers": [
     "pip_requirements",
     "dockerfile",
@@ -11,8 +12,22 @@
   ],
   "packageRules": [
     {
-      "matchManagers": ["github-actions"],
+      "matchManagers": ["pip_requirements"],
+      "addLabels": ["python"]
+    },
+    {
+      "matchManagers": ["dockerfile", "docker-compose"],
+      "addLabels": ["docker"],
       "pinDigests": true
+    },
+    {
+      "matchManagers": ["github-actions"],
+      "addLabels": ["github-actions"],
+      "pinDigests": true
+    },
+    {
+      "matchCategories": ["security"],
+      "addLabels": ["security"]
     }
   ]
 }
