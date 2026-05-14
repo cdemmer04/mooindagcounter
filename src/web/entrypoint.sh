@@ -12,6 +12,7 @@ exec gunicorn app:app \
     --bind "0.0.0.0:8080" \
     --workers "${GUNICORN_WORKERS:-2}" \
     --timeout 30 \
+    --forwarded-allow-ips "*" \
     --pid /tmp/gunicorn.pid \
     --worker-tmp-dir /tmp \
     --access-logfile - \

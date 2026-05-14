@@ -70,7 +70,6 @@ templates = Jinja2Templates(directory="templates")
 # Serveer bestanden uit de static/-map op het /static/-pad (CSS, afbeeldingen, favicon).
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
-
 # --- Cache-middleware ---
 
 class NoCacheHTMLMiddleware(BaseHTTPMiddleware):
