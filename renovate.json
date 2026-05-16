@@ -1,42 +1,27 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": ["config:recommended"],
+  "timezone": "Europe/Amsterdam",
+  "schedule": ["* 12 * * *"],
   "forkProcessing": "enabled",
   "pinDigests": true,
+  "assigneesFromCodeOwners": true,
+  "reviewersFromCodeOwners": true,
+  "enabledManagers": ["pip_requirements", "dockerfile", "docker-compose", "github-actions"],
   "labels": ["dependencies"],
-  "automerge": false,
-  "enabledManagers": [
-    "pip_requirements",
-    "dockerfile",
-    "docker-compose",
-    "github-actions"
-  ],
   "packageRules": [
     {
-      "matchManagers": ["pip_requirements"],
-      "addLabels": ["python"]
-    },
-    {
       "matchManagers": ["dockerfile", "docker-compose"],
-      "addLabels": ["docker"],
-      "pinDigests": true
+      "groupName": "Docker images",
+      "addLabels": ["docker"]
     },
     {
       "matchManagers": ["github-actions"],
-      "addLabels": ["github-actions"],
-      "pinDigests": true
-    },
-    {
-      "matchCategories": ["security"],
-      "addLabels": ["security"]
+      "groupName": "GitHub Actions",
+      "addLabels": ["github-actions"]
     },
     {
       "matchUpdateTypes": ["patch", "digest"],
-      "automerge": true,
-      "automergeType": "pr"
-    },
-    {
-      "matchUpdateTypes": ["minor"],
       "automerge": true,
       "automergeType": "pr"
     },
