@@ -38,20 +38,6 @@
       ]
     },
     {
-      "matchUpdateTypes": [
-        "patch",
-        "digest"
-      ],
-      "automerge": true,
-      "automergeType": "pr"
-    },
-    {
-      "matchUpdateTypes": [
-        "major"
-      ],
-      "automerge": false
-    },
-    {
       "matchManagers": [
         "pip_requirements",
         "pep621"
@@ -61,5 +47,8 @@
         "python"
       ]
     }
-  ]
+  ],
+  "automerge": true,
+  "automergeType": "pr",
+  "semanticCommits": "enabled"
 }
