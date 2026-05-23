@@ -1,3 +1,3 @@
-FROM mariadb:12.2@sha256:350261292d0129fd4b24f537dcf05ecd3ebe34d39d5b592af551f38310e7a167
+FROM mariadb:12@sha256:55c0c47a7f38df9340f8816dee5ef4d67da2e50605675eb48c84e1454458fef3
 
 COPY create_db.sql /docker-entrypoint-initdb.d/01-schema.sql
