@@ -190,12 +190,27 @@ Serveert `static/robots.txt` op het root-pad.
 
 ## Deployment
 
-GitHub Actions bouwt en pusht drie images naar GHCR:
+GitHub Actions bouwt en pusht drie images naar GHCR, onder de namespace van
+de **repo-eigenaar** (`ghcr.io/<owner>/…`). Forks publiceren dus automatisch
+naar hun eigen namespace, zonder aanpassingen:
 
 | Image | Bron | Variant |
 |---|---|---|
-| `mooindagcounter-web` | `microservices/web` | microservices |
-| `mooindagcounter-db` | `microservices/db` | microservices |
-| `mooindagcounter-libsql` | `bunny-libsql/web` | bunny-libsql |
+| `ghcr.io/<owner>/mooindagcounter-web` | `microservices/web` | microservices |
+| `ghcr.io/<owner>/mooindagcounter-db` | `microservices/db` | microservices |
+| `ghcr.io/<owner>/mooindagcounter-libsql` | `bunny-libsql/web` | bunny-libsql |
+
+Goed om te weten:
+
+- **Push naar `main`** publiceert `latest` + een `sha-…` tag; via **Actions →
+  Build & Push → Run workflow** kun je ook vanaf een branch bouwen (alleen
+  `sha-…`, geen `latest`).
+- **Eerste keer publiceren vanaf een fork?** Nieuwe GHCR-packages staan
+  standaard op *private*. Bunny's "GitHub Public" registry kan ze dan niet
+  pullen: zet elk package op public via GitHub → Packages →
+  *Package settings* → *Change visibility*.
+- De Kubernetes-manifests wijzen naar `ghcr.io/stensel8/…`; draai je vanuit
+  een andere namespace, gebruik dan de `images:`-override in
+  `microservices/k8s/kustomization.yaml`.
 
 De app draait als Gunicorn+UvicornWorker (ASGI), HTTP/2 en HTTP/3 lopen via Bunny.net.

@@ -1,5 +1,19 @@
 name: Build & Push to GHCR
 
+# Fork-vriendelijk: images worden gepusht naar de GHCR-namespace van de
+# repo-eigenaar (ghcr.io/<owner>/mooindagcounter-*). Een fork publiceert dus
+# automatisch naar zijn eigen namespace en kan nooit bij de upstream-images.
+#
+# Dit kan veilig zonder fork-guards: de workflow draait alleen op een push
+# naar main en op handmatige workflow_dispatch — in beide gevallen draait hij
+# in de repo zelf en heeft GITHUB_TOKEN daar packages:write. Het geval waarin
+# het token read-only is (pull requests vanuit forks) triggert deze workflow
+# niet.
+#
+# Testen vanaf een branch: start de workflow handmatig (Actions > Build &
+# Push > Run workflow > kies je branch). Je krijgt dan sha-getagde images;
+# de latest-tag wordt alleen op de default branch gezet.
+
 on:
   push:
     branches:
@@ -35,8 +49,6 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
 
       - name: Log in to GitHub Container Registry
-        # Only log in when we're actually going to push (i.e. not a fork)
-        if: github.repository == github.event.repository.full_name && !github.event.repository.fork
         uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121
         with:
           registry: ghcr.io
@@ -45,6 +57,8 @@ jobs:
 
       - name: Extract Docker metadata
         id: meta
+        # metadata-action maakt de imagenaam automatisch lowercase
+        # (GHCR vereist dat; "Stensel8" wordt "stensel8").
         uses: docker/metadata-action@030e881283bb7a6894de51c315a6bfe6a94e05cf
         with:
           images: ghcr.io/${{ github.repository_owner }}/${{ matrix.image }}
@@ -56,8 +70,6 @@ jobs:
         uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f
         with:
           context: ${{ matrix.context }}
-          # Only push when running from the canonical (non-forked) repo.
-          # Forks lack write:packages permission for foreign GHCR namespaces.
-          push: ${{ !github.event.repository.fork }}
+          push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
