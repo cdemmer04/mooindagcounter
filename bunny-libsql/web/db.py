@@ -53,8 +53,17 @@ def _base_url() -> str:
     (docker compose) is het http://db:8080.
     """
     url = (
-        os.getenv("LIBSQL_URL") or os.getenv("BUNNY_DATABASE_URL") or "http://localhost:8080"
+        os.getenv("LIBSQL_URL") 
+        or os.getenv("BUNNY_DATABASE_URL") 
+        or "http://localhost:8080"
     ).strip().rstrip("/")
+    
+    # Debug: log welke variabelen beschikbaar zijn
+    logger.info("DB URL bron: LIBSQL_URL=%s, BUNNY_DATABASE_URL=%s, gekozen=%s", 
+                bool(os.getenv("LIBSQL_URL")), 
+                bool(os.getenv("BUNNY_DATABASE_URL")), 
+                url)
+    
     for old, new in (("libsql://", "https://"), ("wss://", "https://"), ("ws://", "http://")):
         if url.startswith(old):
             return new + url.removeprefix(old)
@@ -71,6 +80,13 @@ def _auth_headers() -> dict:
     token = (
         os.getenv("LIBSQL_AUTH_TOKEN") or os.getenv("BUNNY_DATABASE_AUTH_TOKEN") or ""
     ).strip()
+    
+    # Debug: log of token aanwezig is
+    logger.info("DB Auth: LIBSQL_AUTH_TOKEN=%s, BUNNY_DATABASE_AUTH_TOKEN=%s, has_token=%s", 
+                bool(os.getenv("LIBSQL_AUTH_TOKEN")), 
+                bool(os.getenv("BUNNY_DATABASE_AUTH_TOKEN")), 
+                bool(token))
+    
     return {"Authorization": f"Bearer {token}"} if token else {}
 
 
@@ -147,10 +163,15 @@ async def _ensure_schema() -> None:
 async def startup() -> None:
     """Opent de gedeelde HTTP-client en maakt het schema aan als dat nog niet bestaat."""
     global _client
+    base = _base_url()
+    headers = _auth_headers()
+    
+    logger.info("DB startup: base_url=%s, headers=%s", base, {k: v[:10] + "..." if v else "" for k, v in headers.items()})
+    
     _client = httpx.AsyncClient(
-        base_url=_base_url(),
-        headers=_auth_headers(),
-        timeout=httpx.Timeout(10.0),
+        base_url=base,
+        headers=headers,
+        timeout=httpx.Timeout(30.0),
         # Retry op verbindingsfouten: een remote database over internet heeft
         # af en toe een haperende verbinding; dit vangt dat stilletjes op.
         transport=httpx.AsyncHTTPTransport(retries=2),

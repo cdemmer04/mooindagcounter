@@ -5,6 +5,14 @@ set -e
 export TZ="${TZ:-Europe/Amsterdam}"
 export HOME=/tmp
 
+echo "=== Omgevingsvariabelen (DB gerelateerd) ==="
+echo "BUNNY_DATABASE_URL: ${BUNNY_DATABASE_URL:-niet ingesteld}"
+echo "LIBSQL_URL: ${LIBSQL_URL:-niet ingesteld}"
+echo "BUNNY_DATABASE_AUTH_TOKEN: ${BUNNY_DATABASE_AUTH_TOKEN:-niet ingesteld}"
+echo "LIBSQL_AUTH_TOKEN: ${LIBSQL_AUTH_TOKEN:-niet ingesteld}"
+echo "BUNNYNET_MC_REGION: ${BUNNYNET_MC_REGION:-niet ingesteld}"
+echo ""
+
 echo "Mooindag! Gunicorn+Uvicorn starten (TZ=${TZ})..."
 
 exec gunicorn app:app \
