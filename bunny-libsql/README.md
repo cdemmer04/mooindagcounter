@@ -52,10 +52,10 @@ App draait op `http://localhost:8080`.
 
 | Variabele | Standaard | Omschrijving |
 |---|---|---|
-| `LIBSQL_URL` | `http://localhost:8080` | Database-URL (`libsql://…` van Bunny of `http://…` lokaal) |
-| `LIBSQL_AUTH_TOKEN` | _(leeg)_ | Access token uit het Bunny dashboard; leeg bij lokale sqld |
-| `BUNNY_DATABASE_URL` | _(leeg)_ | Alternatief voor `LIBSQL_URL`; wordt automatisch gezet door Bunny's "Add Secrets" knop |
-| `BUNNY_DATABASE_AUTH_TOKEN` | _(leeg)_ | Alternatief voor `LIBSQL_AUTH_TOKEN`; idem |
+| `BUNNY_DATABASE_URL` | _(leeg)_ | Database-URL uit Bunny's "Add Secrets" knop, of `libsql://…` |
+| `BUNNY_DATABASE_AUTH_TOKEN` | _(leeg)_ | Access token uit Bunny's "Add Secrets" knop |
+| `LIBSQL_URL` | _(leeg)_ | Handmatige fallback voor de database-URL |
+| `LIBSQL_AUTH_TOKEN` | _(leeg)_ | Handmatige fallback voor het access token |
 | `DISCORD_WEBHOOK_URL` | _(leeg)_ | Optioneel: Discord meldingen |
 | `GUNICORN_WORKERS` | `2` | Aantal Gunicorn+Uvicorn workers |
 

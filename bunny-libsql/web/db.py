@@ -43,52 +43,34 @@ _client: httpx.AsyncClient | None = None
 _schema_ready = False
 
 
-def _base_url() -> str:
+def _base_url() -> str | None:
     """
-    Normaliseert de database-URL naar een http(s)-URL.
-    Leest LIBSQL_URL, of BUNNY_DATABASE_URL — de naam die Bunny's
-    "Add Secrets to Magic Container App" knop automatisch injecteert.
-    Bunny geeft URL's in de vorm libsql://<id>.lite.bunnydb.net; dat is
-    hetzelfde endpoint over HTTPS. Voor lokale ontwikkeling met sqld
-    (docker compose) is het http://db:8080.
+    Leest de database-URL uit Bunny's env vars en normaliseert libsql://
+    en ws:// varianten naar http(s) voor httpx.
     """
-    url = (
-        os.getenv("LIBSQL_URL") 
-        or os.getenv("BUNNY_DATABASE_URL") 
-        or "http://localhost:8080"
+    selected_value = (
+        os.getenv("BUNNY_DATABASE_URL")
+        or os.getenv("LIBSQL_URL")
+        or ""
     ).strip().rstrip("/")
-    
-    # Debug: log welke variabelen beschikbaar zijn
-    logger.info("DB URL bron: LIBSQL_URL=%s, BUNNY_DATABASE_URL=%s, gekozen=%s", 
-                bool(os.getenv("LIBSQL_URL")), 
-                bool(os.getenv("BUNNY_DATABASE_URL")), 
-                url)
-    
+    if not selected_value:
+        return None
+
     for old, new in (("libsql://", "https://"), ("wss://", "https://"), ("ws://", "http://")):
-        if url.startswith(old):
-            return new + url.removeprefix(old)
-    return url
+        if selected_value.startswith(old):
+            return new + selected_value.removeprefix(old)
+    return selected_value
 
 
 def _auth_headers() -> dict:
     """
-    Bearer-token voor de database. Leest LIBSQL_AUTH_TOKEN, of
-    BUNNY_DATABASE_AUTH_TOKEN (automatisch geinjecteerd door Bunny's
-    "Add Secrets" knop; de app schrijft, dus niet het READ_ONLY-token).
-    Leeg bij een lokale sqld zonder auth.
+    Bearer-token voor de database uit Bunny's env vars.
     """
     token = (
-        os.getenv("LIBSQL_AUTH_TOKEN") 
-        or os.getenv("BUNNY_DATABASE_AUTH_TOKEN") 
+        os.getenv("BUNNY_DATABASE_AUTH_TOKEN")
+        or os.getenv("LIBSQL_AUTH_TOKEN")
         or ""
     ).strip()
-    
-    # Debug: log of token aanwezig is
-    logger.info("DB Auth: LIBSQL_AUTH_TOKEN=%s, BUNNY_DATABASE_AUTH_TOKEN=%s, has_token=%s", 
-                bool(os.getenv("LIBSQL_AUTH_TOKEN")), 
-                bool(os.getenv("BUNNY_DATABASE_AUTH_TOKEN")), 
-                bool(token))
-    
     return {"Authorization": f"Bearer {token}"} if token else {}
 
 
@@ -166,9 +148,10 @@ async def startup() -> None:
     """Opent de gedeelde HTTP-client en maakt het schema aan als dat nog niet bestaat."""
     global _client
     base = _base_url()
+    if base is None:
+        _client = None
+        return
     headers = _auth_headers()
-    
-    logger.info("DB startup: base_url=%s, headers=%s", base, {k: v[:10] + "..." if v else "" for k, v in headers.items()})
     
     _client = httpx.AsyncClient(
         base_url=base,
