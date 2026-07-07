@@ -37,7 +37,7 @@ zodat CDN's en browsers nooit een oude tellerstand tonen.
 | Route | Wat |
 |---|---|
 | `GET /` | Tellerstand + invoerformulier |
-| `POST /increment` | Nieuw bericht (max 300 tekens, uniek); redirect naar `/` |
+| `POST /increment` | Nieuw bericht (max 300 tekens, uniek); redirect naar `/`, of JSON met de header `X-Requested-With: fetch` (zo verstuurt de frontend zonder paginaverversing) |
 | `GET /overview` | Tabel met alle counts, met verwijderknop |
 | `GET /api/counts` | Alle counts als JSON, nieuwste eerst |
 | `GET /api/counts/{id}` | Eén count als JSON |
@@ -47,9 +47,10 @@ zodat CDN's en browsers nooit een oude tellerstand tonen.
 
 ## Live updates
 
-De teller tikt live bij en nieuwe berichten van anderen vliegen als melding
-bovenin voorbij, via een WebSocket op `/ws`. Werkt over regio's heen zonder
-extra infrastructuur: pods delen geen geheugen, dus **elke worker peilt de
+De teller tikt live bij en nieuwe berichten verschijnen als band die bovenin
+uitklapt, op `/` én `/overview` (daar komt het bericht ook live de tabel in),
+via een WebSocket op `/ws`. Werkt over regio's heen zonder extra
+infrastructuur: pods delen geen geheugen, dus **elke worker peilt de
 database** (1 kleine SELECT per `LIVE_POLL_SECONDS`, standaard 4s) en stuurt
 veranderingen naar zijn eigen kijkers — de database is de gedeelde waarheid.
 
@@ -60,6 +61,11 @@ Bewust zuinig opgezet:
   weg = verbinding dicht = geen connection-minuten bij Bunny);
 - updates komen binnen ~`LIVE_POLL_SECONDS` overal aan — snel genoeg voor
   een teller, en afgerond gratis qua reads en connection-minuten.
+
+Betrouwbaarheid: is er niets te melden, dan stuurt de server elke ~25s een
+heartbeat. Zo ruimt hij kijkers op waarvan de close-frame nooit aankwam
+(CDN-proxy), en herkent de browser een dode verbinding (watchdog) om daarna
+met exponentiële backoff opnieuw te verbinden.
 
 ## Verwijderen (wachtwoord)
 

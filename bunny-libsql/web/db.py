@@ -191,6 +191,7 @@ async def delete_counter(entry_id: int) -> bool:
 async def get_counters_since(entry_id: int) -> list:
     """Nieuwe counts na een gegeven ID (voor de live-updates); max 20."""
     rows = await _query(
-        "SELECT id, message FROM counts WHERE id > ? ORDER BY id LIMIT 20", (entry_id,)
+        "SELECT id, message, date, time FROM counts WHERE id > ? ORDER BY id LIMIT 20",
+        (entry_id,),
     )
     return rows or []

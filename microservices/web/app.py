@@ -48,6 +48,12 @@ TRUST_SECONDS = 600
 # ís de synchronisatie. Eén SELECT per interval per worker — verwaarloosbaar.
 LIVE_POLL_SECONDS = float(os.getenv("LIVE_POLL_SECONDS", "4"))
 
+# Is er niets te melden, dan gaat er elke HEARTBEAT_SECONDS een klein
+# heartbeat-frame uit. Zo kan de browser een stilletjes gesneuvelde
+# verbinding herkennen (watchdog in _live.html), en ruimt de server
+# kijkers op waarvan de close-frame nooit is aangekomen.
+HEARTBEAT_SECONDS = 25.0
+
 # Welke regio/pod dit request afhandelde (Bunny injecteert BUNNYNET_MC_*);
 # gaat als X-Served-By header mee zodat multi-region te debuggen is.
 SERVED_BY = "-".join(
@@ -139,25 +145,45 @@ async def _poll_loop():
     Draait alleen zolang er kijkers zijn en stopt daarna vanzelf (geen
     kijkers = geen queries = geen kosten). Bij elke verandering van de
     tellerstand gaan de nieuwe berichten naar alle lokale kijkers; andere
-    regio's zien dezelfde verandering via hun eigen poller.
+    regio's zien dezelfde verandering via hun eigen poller. Zonder
+    veranderingen gaat er periodiek een heartbeat uit (zie HEARTBEAT_SECONDS).
     """
     last_id = None
+    laatste_zending = 0.0
     while _ws_clients:
-        latest = await db.get_latest_counter()
-        if latest is not None and latest != last_id:
-            nieuw = []
-            if last_id is not None and latest > last_id:
-                nieuw = await db.get_counters_since(last_id)
-            payload = {
-                "counter": latest,
-                "nieuw": [{"id": r["id"], "message": r["message"]} for r in nieuw],
-            }
-            for client in list(_ws_clients):
-                try:
-                    await client.send_json(payload)
-                except Exception:
-                    _ws_clients.discard(client)
-            last_id = latest
+        try:
+            payload = None
+            latest = await db.get_latest_counter()
+            if latest is not None and latest != last_id:
+                nieuw = []
+                if last_id is not None and latest > last_id:
+                    nieuw = await db.get_counters_since(last_id)
+                payload = {
+                    "counter": latest,
+                    "nieuw": [
+                        {
+                            "id": r["id"],
+                            "message": r["message"],
+                            "date": r["date"],
+                            "time": r["time"],
+                        }
+                        for r in nieuw
+                    ],
+                }
+                last_id = latest
+            elif time.monotonic() - laatste_zending >= HEARTBEAT_SECONDS:
+                payload = {"hb": 1}
+            if payload is not None:
+                laatste_zending = time.monotonic()
+                for client in list(_ws_clients):
+                    try:
+                        await client.send_json(payload)
+                    except Exception:
+                        _ws_clients.discard(client)
+        except Exception as e:
+            # De poller mag nooit sterven aan een tijdelijke fout: kijkers
+            # zouden dan geen updates meer krijgen tot een nieuwe verbinding.
+            logger.warning("Live-poller overleefde een fout: %s", e)
         await asyncio.sleep(LIVE_POLL_SECONDS)
 
 
@@ -223,12 +249,17 @@ async def index(request: Request):
 @app.post("/increment")
 async def increment(request: Request, message: str = Form("")):
     """
-    Valideert en bewaart een nieuw bericht. Redirect met 303 (See Other)
-    zodat verversen na het opslaan de POST niet herhaalt.
+    Valideert en bewaart een nieuw bericht. Een gewone formulier-post krijgt
+    een 303-redirect (verversen herhaalt de POST niet); de fetch-variant van
+    de frontend (header X-Requested-With: fetch) krijgt JSON terug, zodat de
+    pagina niet ververst en de eigen melding altijd netjes verschijnt.
     """
+    wil_json = request.headers.get("X-Requested-With") == "fetch"
     timestamp = datetime.now(tz=AMS)
     counter = await db.get_latest_counter()
     if counter is None:
+        if wil_json:
+            return JSONResponse({"ok": False, "error": "offline"}, status_code=503)
         return offline_page(request)
 
     message = message.strip().lower()
@@ -241,6 +272,8 @@ async def increment(request: Request, message: str = Form("")):
     else:
         error = None
     if error:
+        if wil_json:
+            return JSONResponse({"ok": False, "error": error})
         return templates.TemplateResponse(
             request, "index.html", {"counter": counter, "error_message": error}
         )
@@ -252,11 +285,16 @@ async def increment(request: Request, message: str = Form("")):
         get_client_ip(request),
     )
     if new_id is None:
+        if wil_json:
+            return JSONResponse({"ok": False, "error": "offline"}, status_code=503)
         return offline_page(request)
 
     task = asyncio.create_task(push_to_discord(new_id, message, timestamp))
     _background_tasks.add(task)
     task.add_done_callback(_background_tasks.discard)
+    if wil_json:
+        # De teller is het hoogste ID, dus het nieuwe ID ís de nieuwe stand.
+        return JSONResponse({"ok": True, "counter": new_id})
     return RedirectResponse(url="/", status_code=303)
 
 

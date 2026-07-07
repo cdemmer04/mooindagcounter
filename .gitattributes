@@ -1,0 +1,4 @@
+# Shell-scripts moeten LF houden, ook op Windows-checkouts (core.autocrlf):
+# met CRLF wordt de shebang "#!/bin/sh\r" en faalt de container met
+# "exec ./entrypoint.sh: no such file or directory".
+*.sh text eol=lf
