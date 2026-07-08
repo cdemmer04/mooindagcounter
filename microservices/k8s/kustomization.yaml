@@ -1,0 +1,25 @@
+# Alles in 1 keer uitrollen:
+#
+#   1. Maak eerst het secret aan (zie secret.example.yaml)
+#   2. kubectl apply -k microservices/k8s/
+#
+# Het secret staat bewust niet in deze lijst: wachtwoorden horen niet in git.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: mooindagcounter
+resources:
+  - namespace.yaml
+  - db-service.yaml
+  - db-statefulset.yaml
+  - web-deployment.yaml
+  - web-service.yaml
+  - web-ingress.yaml
+
+# Draai je vanuit een fork? Elke fork publiceert images naar zijn eigen
+# GHCR-namespace; overschrijf ze hier zonder de manifests aan te passen:
+#
+# images:
+#   - name: ghcr.io/stensel8/mooindag-web
+#     newName: ghcr.io/<jouw-github-naam>/mooindag-web
+#   - name: ghcr.io/stensel8/mooindag-db
+#     newName: ghcr.io/<jouw-github-naam>/mooindag-db

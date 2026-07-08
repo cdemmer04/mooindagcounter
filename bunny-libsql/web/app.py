@@ -1,0 +1,434 @@
+"""
+Web-app: routes, validatie en teller-logica.
+
+Dit bestand is IDENTIEK in beide varianten van deze repo; het enige verschil
+zit in de datalaag (web/db.py). Wijzig je hier iets, kopieer het dan 1-op-1
+naar de andere variant — de CI-check "variant-sync" dwingt dit af.
+"""
+
+import asyncio
+import hashlib
+import hmac
+import logging
+import os
+import time
+from contextlib import asynccontextmanager
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
+import httpx
+from dotenv import load_dotenv
+from fastapi import FastAPI, Form, Request, WebSocket, WebSocketDisconnect
+from fastapi.responses import (
+    FileResponse,
+    JSONResponse,
+    PlainTextResponse,
+    RedirectResponse,
+)
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
+from starlette.middleware.base import BaseHTTPMiddleware
+
+import db
+
+# .env is alleen voor lokaal ontwikkelen; in productie komt alles via Docker env.
+if os.path.exists("./.env"):
+    load_dotenv("./.env")
+
+logger = logging.getLogger("uvicorn.error")
+
+AMS = ZoneInfo(os.getenv("TZ", "Europe/Amsterdam"))
+MAX_MESSAGE_LENGTH = 300
+
+# Eén bron voor de foutteksten: de server stuurt ze mee in de JSON-response
+# én rendert ze in de template, zodat het fetch-pad en het kale formulier
+# nooit verschillende bewoordingen tonen.
+FOUTTEKSTEN = {
+    "empty": "Voer een bericht in!",
+    "too_long": f"Bericht mag maximaal {MAX_MESSAGE_LENGTH} tekens bevatten!",
+    "duplicate": "Dit bericht bestaat al!",
+    "offline": "De database is even niet beschikbaar. Probeer het zo nog eens.",
+}
+
+# Verwijder-wachtwoord: alleen via env/secret, nooit in de code. Niet
+# ingesteld betekent verwijderen uitgeschakeld. Na een juist wachtwoord is
+# de browser TRUST_SECONDS vertrouwd via een HMAC-getekende cookie.
+DELETE_PASSWORD = os.getenv("DELETE_PASSWORD", "")
+TRUST_COOKIE = "mooindag_trust"
+TRUST_SECONDS = 600
+
+# Live-updates: hoe vaak een worker de database peilt zolang er websocket-
+# kijkers zijn. De pods in verschillende regio's delen geen geheugen; de
+# (gerepliceerde) database is hun enige gedeelde waarheid, dus dit pollen
+# ís de synchronisatie. Eén SELECT per interval per worker — verwaarloosbaar.
+# Gecapt op 60s: de browser-watchdog (zie _live.html) sluit een verbinding
+# na 75s stilte, dus het peil-interval moet daar ruim onder blijven.
+LIVE_POLL_SECONDS = min(60.0, float(os.getenv("LIVE_POLL_SECONDS", "4")))
+
+# Is er niets te melden, dan gaat er elke HEARTBEAT_SECONDS een klein
+# heartbeat-frame uit. Zo kan de browser een stilletjes gesneuvelde
+# verbinding herkennen (watchdog in _live.html), en ruimt de server
+# kijkers op waarvan de close-frame nooit is aangekomen.
+HEARTBEAT_SECONDS = 25.0
+
+# Welke regio/pod dit request afhandelde (Bunny injecteert BUNNYNET_MC_*);
+# gaat als X-Served-By header mee zodat multi-region te debuggen is.
+SERVED_BY = "-".join(
+    filter(None, (os.getenv("BUNNYNET_MC_REGION"), os.getenv("BUNNYNET_MC_PODID")))
+) or os.getenv("HOSTNAME", "local")
+
+# Sterke referenties naar achtergrondtaken zodat de GC ze niet opruimt.
+_background_tasks: set[asyncio.Task] = set()
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    await db.startup()
+    yield
+    await db.shutdown()
+
+
+app = FastAPI(lifespan=lifespan, docs_url=None, openapi_url=None, redoc_url=None)
+templates = Jinja2Templates(directory="templates")
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
+
+# Security-headers (HSTS, anti-framing, CSP, enz.). De CSP staat
+# 'unsafe-inline' toe omdat de live-update JS/CSS bewust inline in de
+# templates reist (CDN-cache), en connect-src staat WebSockets toe.
+SECURITY_HEADERS = {
+    "strict-transport-security": "max-age=31536000; includeSubDomains; preload",
+    "x-frame-options": "DENY",
+    "x-content-type-options": "nosniff",
+    "referrer-policy": "no-referrer",
+    "permissions-policy": (
+        "geolocation=(), microphone=(), camera=(), payment=(), usb=(), "
+        "magnetometer=(), gyroscope=(), accelerometer=(), fullscreen=(self)"
+    ),
+    "content-security-policy": (
+        "default-src 'none'; base-uri 'self'; frame-ancestors 'none'; "
+        "form-action 'self'; frame-src 'none'; "
+        "script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; "
+        "font-src 'self' data:; img-src 'self' data:; media-src 'self'; "
+        "manifest-src 'self'; connect-src 'self' wss: ws:; object-src 'none'"
+    ),
+    "cross-origin-opener-policy": "same-origin",
+    "cross-origin-resource-policy": "same-origin",
+    "cross-origin-embedder-policy": "require-corp",
+}
+
+
+class ResponseHeadersMiddleware(BaseHTTPMiddleware):
+    """
+    'Cache-Control: no-store' op HTML zodat CDN's/browsers nooit een oude
+    tellerstand tonen, 'X-Served-By' voor multi-region debugging, en de
+    security-headers op elke response (ook 404's en redirects).
+    """
+    async def dispatch(self, request, call_next):
+        response = await call_next(request)
+        if "text/html" in response.headers.get("content-type", ""):
+            response.headers["cache-control"] = "no-store"
+        response.headers["x-served-by"] = SERVED_BY
+        response.headers.update(SECURITY_HEADERS)
+        return response
+
+
+app.add_middleware(ResponseHeadersMiddleware)
+
+
+# --- Foutafhandeling --- Mooindag...
+
+def offline_page(request: Request):
+    """Vriendelijke foutpagina die vertelt wat er misgaat (uit db.last_error)."""
+    return templates.TemplateResponse(
+        request, "db_offline.html", {"reden": db.last_error}, status_code=503
+    )
+
+
+def offline_json():
+    return JSONResponse(
+        {"error": db.last_error or "de database is even niet beschikbaar"},
+        status_code=503,
+    )
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception(request: Request, exc: Exception):
+    """Vangnet: log de fout en toon de foutpagina in plaats van een kale 500."""
+    logger.error("Onverwachte fout bij %s %s: %s", request.method, request.url.path, exc)
+    return templates.TemplateResponse(
+        request, "db_offline.html", {"reden": "er ging onverwacht iets stuk"}, status_code=500
+    )
+
+
+# --- Verwijder-beveiliging --- Mooindag!
+
+def _sign(expires: int) -> str:
+    return hmac.new(DELETE_PASSWORD.encode(), str(expires).encode(), hashlib.sha256).hexdigest()
+
+
+def _is_trusted(request: Request) -> bool:
+    """Heeft deze browser een geldige, niet-verlopen vertrouwenscookie?"""
+    expires, _, signature = request.cookies.get(TRUST_COOKIE, "").partition(".")
+    return (
+        bool(DELETE_PASSWORD)
+        and expires.isdigit()
+        and int(expires) > time.time()
+        and hmac.compare_digest(signature, _sign(int(expires)))
+    )
+
+
+# --- Live-updates via WebSocket --- Mooindag!
+
+_ws_clients: set[WebSocket] = set()
+_poller: asyncio.Task | None = None
+
+
+async def _poll_loop():
+    """
+    Draait alleen zolang er kijkers zijn en stopt daarna vanzelf (geen
+    kijkers = geen queries = geen kosten). Bij elke verandering van de
+    tellerstand gaan de nieuwe berichten naar alle lokale kijkers; andere
+    regio's zien dezelfde verandering via hun eigen poller. Zonder
+    veranderingen gaat er periodiek een heartbeat uit (zie HEARTBEAT_SECONDS).
+    """
+    last_id = None
+    laatste_zending = time.monotonic()
+    while _ws_clients:
+        try:
+            payload = None
+            latest = await db.get_latest_counter()
+            if latest is not None and latest != last_id:
+                nieuw = []
+                if last_id is not None and latest > last_id:
+                    nieuw = await db.get_counters_since(last_id)
+                payload = {
+                    "counter": latest,
+                    "nieuw": [
+                        {
+                            "id": r["id"],
+                            "message": r["message"],
+                            "date": r["date"],
+                            "time": r["time"],
+                        }
+                        for r in nieuw
+                    ],
+                }
+                # get_counters_since geeft max 20 rijen; bij een grotere burst
+                # schuift last_id alleen op tot de laatst verstuurde rij, zodat
+                # de rest de volgende peiling alsnog meekomt.
+                last_id = nieuw[-1]["id"] if len(nieuw) == 20 else latest
+            elif last_id is not None and time.monotonic() - laatste_zending >= HEARTBEAT_SECONDS:
+                # Heartbeat in dezelfde vorm als een gewone update, zodat ook
+                # tabs die nog het oude script draaien (van vóór een deploy)
+                # hem zonder fouten verwerken.
+                payload = {"counter": last_id, "nieuw": []}
+            if payload is not None:
+                laatste_zending = time.monotonic()
+                for client in list(_ws_clients):
+                    try:
+                        await client.send_json(payload)
+                    except Exception:
+                        _ws_clients.discard(client)
+        except Exception as e:
+            # De poller mag nooit sterven aan een tijdelijke fout: kijkers
+            # zouden dan geen updates meer krijgen tot een nieuwe verbinding.
+            logger.warning("Live-poller overleefde een fout: %s", e)
+        await asyncio.sleep(LIVE_POLL_SECONDS)
+
+
+@app.websocket("/ws")
+async def websocket_live(ws: WebSocket):
+    """Duwt tellerstand + nieuwe berichten naar de browser zodra die veranderen."""
+    global _poller
+    await ws.accept()
+    _ws_clients.add(ws)
+    if _poller is None or _poller.done():
+        _poller = asyncio.create_task(_poll_loop())
+    try:
+        while True:
+            await ws.receive_text()  # clients sturen niets; dit wacht op de disconnect
+    except WebSocketDisconnect:
+        pass
+    finally:
+        _ws_clients.discard(ws)
+
+
+# --- Applicatielogica --- Mooindag!
+
+async def push_to_discord(counter: int, message: str, timestamp: datetime) -> None:
+    """Discord-melding na een increment; draait als achtergrondtaak."""
+    url = os.getenv("DISCORD_WEBHOOK_URL")
+    if not url:
+        return
+    try:
+        async with httpx.AsyncClient(timeout=5) as client:
+            await client.post(
+                url,
+                json={
+                    "content": (
+                        f"Counter: {counter}\n"
+                        f"Datum: {timestamp.strftime('%d-%m-%Y')}\n"
+                        f"Tijd: {timestamp.strftime('%H:%M')}\n"
+                        f"{message.capitalize()}"
+                    )
+                },
+            )
+    except httpx.RequestError as e:
+        logger.warning("Discord webhook mislukt: %s", e)
+
+
+def get_client_ip(request: Request) -> str:
+    """Client-IP; Bunny.net zet het originele IP voorop in X-Forwarded-For."""
+    forwarded_for = request.headers.get("X-Forwarded-For")
+    if forwarded_for:
+        return forwarded_for.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
+
+
+# --- Routes --- Mooindag...
+
+@app.get("/")
+async def index(request: Request):
+    counter = await db.get_latest_counter()
+    if counter is None:
+        return offline_page(request)
+    return templates.TemplateResponse(request, "index.html", {"counter": counter})
+
+
+def _increment_fout(request: Request, wil_json: bool, code: str, counter: int | None):
+    """Zelfde fout in twee vormen: JSON voor de fetch-frontend, HTML voor het kale formulier."""
+    if wil_json:
+        status = 503 if code == "offline" else 200
+        return JSONResponse(
+            {"ok": False, "error": code, "text": FOUTTEKSTEN[code]}, status_code=status
+        )
+    if code == "offline":
+        return offline_page(request)
+    return templates.TemplateResponse(
+        request, "index.html", {"counter": counter, "error_message": FOUTTEKSTEN[code]}
+    )
+
+
+@app.post("/increment")
+async def increment(request: Request, message: str = Form("")):
+    """
+    Valideert en bewaart een nieuw bericht. Een gewone formulier-post krijgt
+    een 303-redirect (verversen herhaalt de POST niet); de fetch-variant van
+    de frontend (header X-Requested-With: fetch) krijgt JSON terug, zodat de
+    pagina niet ververst en de eigen melding altijd netjes verschijnt.
+    """
+    wil_json = request.headers.get("X-Requested-With") == "fetch"
+    timestamp = datetime.now(tz=AMS)
+    counter = await db.get_latest_counter()
+    if counter is None:
+        return _increment_fout(request, wil_json, "offline", None)
+
+    message = message.strip().lower()
+    if not message:
+        return _increment_fout(request, wil_json, "empty", counter)
+    if len(message) > MAX_MESSAGE_LENGTH:
+        return _increment_fout(request, wil_json, "too_long", counter)
+    if await db.message_exists(message):
+        return _increment_fout(request, wil_json, "duplicate", counter)
+
+    new_id = await db.save_counter(
+        message,
+        timestamp.date(),
+        timestamp.time().replace(microsecond=0),
+        get_client_ip(request),
+    )
+    if new_id is None:
+        return _increment_fout(request, wil_json, "offline", None)
+
+    task = asyncio.create_task(push_to_discord(new_id, message, timestamp))
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
+    if wil_json:
+        # De teller is het hoogste ID, dus het nieuwe ID ís de nieuwe stand.
+        return JSONResponse({"ok": True, "counter": new_id, "message": message})
+    return RedirectResponse(url="/", status_code=303)
+
+
+@app.get("/overview")
+async def overview(request: Request):
+    data = await db.get_all_counters()
+    if data is None:
+        return offline_page(request)
+    return templates.TemplateResponse(request, "overview.html", {"data": data})
+
+
+@app.get("/robots.txt")
+async def robots_txt():
+    return FileResponse("static/robots.txt", media_type="text/plain")
+
+
+# RFC 9116; Contact en Expires zijn verplicht, ondertekening is optioneel.
+# Expires jaarlijks opschuiven.
+SECURITY_TXT = (
+    "Contact: mailto:mail@mooindagcounter.nl\n"
+    "Expires: 2027-07-01T00:00:00.000Z\n"
+    "Preferred-Languages: nl, en\n"
+)
+
+
+@app.get("/.well-known/security.txt")
+@app.get("/security.txt")
+async def security_txt(request: Request):
+    # Canonical per hostname: dezelfde app draait op meerdere domeinen.
+    canonical = f"Canonical: https://{request.url.hostname}/.well-known/security.txt\n"
+    return PlainTextResponse(SECURITY_TXT + canonical)
+
+
+# --- JSON API --- Mooindag!
+
+@app.get("/api/counts")
+async def api_counts():
+    counters = await db.get_all_counters()
+    if counters is None:
+        return offline_json()
+    return JSONResponse(
+        [{"id": c["id"], "message": c["message"], "date": c["date"]} for c in counters]
+    )
+
+
+@app.get("/api/counts/{id}")
+async def get_api_count(id: int):
+    entry = await db.get_counter(id)
+    if not entry:
+        return JSONResponse({"error": "Dat berichtje bestaat niet (meer)."}, status_code=404)
+    return JSONResponse({k: v for k, v in entry.items() if k != "client_ip"})
+
+
+@app.delete("/api/counts/{id}")
+async def delete_api_count(id: int, request: Request):
+    """
+    Verwijdert een count. Vereist het verwijder-wachtwoord (header
+    X-Delete-Password) of een nog geldige vertrouwenscookie; bij een juist
+    wachtwoord wordt de browser TRUST_SECONDS vertrouwd.
+    """
+    if not DELETE_PASSWORD:
+        return JSONResponse(
+            {"error": "Verwijderen staat uit: er is geen DELETE_PASSWORD ingesteld."},
+            status_code=403,
+        )
+    trusted = _is_trusted(request)
+    given = request.headers.get("X-Delete-Password", "")
+    if not trusted and not hmac.compare_digest(given.encode(), DELETE_PASSWORD.encode()):
+        return JSONResponse({"error": "Dat wachtwoord klopt niet."}, status_code=401)
+
+    if not await db.delete_counter(id):
+        return offline_json()
+
+    response = JSONResponse({"message": f"Record {id} verwijderd"})
+    if not trusted:
+        expires = int(time.time()) + TRUST_SECONDS
+        response.set_cookie(
+            TRUST_COOKIE,
+            f"{expires}.{_sign(expires)}",
+            max_age=TRUST_SECONDS,
+            httponly=True,
+            samesite="lax",
+            secure=request.url.scheme == "https",
+        )
+    return response

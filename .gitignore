@@ -1,7 +1,11 @@
-*.sh
+# NB: geen '*.sh' hier — dat patroon hield eerder stilletjes een
+# gekopieerde entrypoint.sh buiten een commit (kapotte Docker-build).
 banned_words.txt
 *.backup
 *.bak
+
+# Kubernetes secret met echte wachtwoorden (zie microservices/k8s/secret.example.yaml)
+microservices/k8s/secret.yaml
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

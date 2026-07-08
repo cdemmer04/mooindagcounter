@@ -1,0 +1,179 @@
+<!-- Live-updates (teller + meldingen) via WebSocket. Gedeeld door index en
+     overview. Bewust inline en niet in app.css: HTML gaat uit met no-store
+     maar statische bestanden worden door de CDN gecachet, en dan kunnen JS
+     en CSS van deze feature uit de pas lopen. Inline reizen ze altijd samen. -->
+<style>
+#liveband {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    transform: translateY(-100%);
+    transition: transform .3s ease;
+    background: rgba(25, 135, 84, .95);
+    color: #fff;
+    padding: .55rem 1rem;
+    text-align: center;
+    font-size: .95rem;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, .3);
+    z-index: 2000;
+}
+
+#liveband.zichtbaar { transform: translateY(0); }
+
+#teller.tik { animation: tellertik .4s ease; }
+
+@keyframes tellertik {
+    50% { transform: scale(1.35); color: #198754; }
+}
+</style>
+
+<div id="liveband" role="status" aria-live="polite"></div>
+
+<script>
+(function () {
+    "use strict";
+
+    // --- Band bovenin: klapt uit, toont 1 melding tegelijk, klapt weer in ---
+    const band = document.getElementById("liveband");
+    const wachtrij = [];
+    let bandBezig = false;
+
+    function toonMelding(tekst) {
+        // Cap op de wachtrij: bij een burst geen minutenlange herhaling van
+        // oude meldingen, maar één samenvattende slotmelding.
+        if (wachtrij.length >= 5) {
+            wachtrij[wachtrij.length - 1] = "…en nog meer nieuwe berichten";
+        } else {
+            wachtrij.push(tekst);
+        }
+        if (!bandBezig) volgendeMelding();
+    }
+
+    function volgendeMelding() {
+        const tekst = wachtrij.shift();
+        if (tekst === undefined) { bandBezig = false; return; }
+        bandBezig = true;
+        band.textContent = tekst;
+        band.classList.add("zichtbaar");
+        setTimeout(() => {
+            band.classList.remove("zichtbaar");
+            setTimeout(volgendeMelding, 400);  // wacht tot de inklap-transitie klaar is
+        }, 4000);
+    }
+
+    // --- Teller (alleen op de indexpagina aanwezig) ---
+    const teller = document.getElementById("teller");
+
+    function zetTeller(waarde) {
+        if (!teller || String(waarde) === teller.textContent) return;
+        teller.textContent = waarde;
+        teller.classList.remove("tik");
+        void teller.offsetWidth;  // herstart de animatie
+        teller.classList.add("tik");
+    }
+
+    // --- Overzichtstabel (alleen op /overview aanwezig) ---
+    // De rij-opbouw komt uit het <template id="rij-sjabloon"> dat in
+    // overview.html naast de Jinja-rijen staat, zodat de markup één keer
+    // bestaat en live rijen niet uit de pas lopen met de gerenderde.
+    const tabel = document.getElementById("counts-body");
+    const rijSjabloon = document.getElementById("rij-sjabloon");
+
+    function voegRijToe(item) {
+        if (!tabel || !rijSjabloon) return;
+        const rij = rijSjabloon.content.firstElementChild.cloneNode(true);
+        const cellen = rij.children;
+        cellen[0].textContent = item.id;
+        cellen[1].textContent = '"' + item.message + '"';
+        cellen[2].textContent = item.date;
+        cellen[3].textContent = item.time;
+        const knop = rij.querySelector("button");
+        knop.setAttribute("aria-label", "Verwijder bericht " + item.id);
+        knop.onclick = () => deleteCount(item.id);
+        tabel.prepend(rij);
+    }
+
+    // --- Eigen submits via fetch: geen paginaverversing, dus de eigen
+    //     melding is altijd zichtbaar. Zonder JS werkt het formulier gewoon. ---
+    const formulier = document.getElementById("increment-form");
+    const foutRegel = document.getElementById("live-fout");
+    const eigenIds = new Set();  // net toegekende ID's: geen dubbele melding via de socket
+
+    function toonFout(tekst) {
+        foutRegel.textContent = tekst || "";
+        foutRegel.classList.toggle("d-none", !tekst);
+    }
+
+    if (formulier) formulier.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        let data;
+        try {
+            const res = await fetch(formulier.action, {
+                method: "POST",
+                body: new FormData(formulier),
+                headers: { "X-Requested-With": "fetch" },
+            });
+            data = await res.json();
+        } catch {
+            // NIET opnieuw posten: de eerste POST kan al verwerkt zijn en een
+            // herhaling zou een dubbele inzending worden. Invoer blijft staan.
+            toonFout("Versturen is niet gelukt. Controleer je verbinding en probeer het opnieuw.");
+            return;
+        }
+        if (!data.ok) {
+            toonFout(data.text || "Er ging iets mis.");
+            return;
+        }
+        toonFout(null);
+        formulier.elements.message.value = "";
+        eigenIds.add(data.counter);
+        zetTeller(data.counter);
+        toonMelding("Nieuw bericht: " + data.message);
+    });
+
+    // --- WebSocket met herverbinden (exponentiële backoff) en watchdog ---
+    let ws = null, herkansing = null, watchdog = null, pogingen = 0;
+
+    // De server stuurt minstens elke ~25s iets (update of heartbeat; het
+    // peil-interval is server-side gecapt op 60s). 75s stilte betekent dus
+    // een dode verbinding die de browser zelf niet opmerkte.
+    function resetWatchdog() {
+        clearTimeout(watchdog);
+        watchdog = setTimeout(() => { if (ws) ws.close(); }, 75000);
+    }
+
+    function verbind() {
+        if (ws || document.visibilityState !== "visible") return;
+        ws = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/ws");
+        ws.onopen = resetWatchdog;
+        ws.onmessage = (e) => {
+            pogingen = 0;  // een echt bericht = gezonde verbinding
+            resetWatchdog();
+            const data = JSON.parse(e.data);
+            zetTeller(data.counter);
+            for (const item of data.nieuw) {
+                voegRijToe(item);
+                if (eigenIds.delete(item.id)) continue;  // al gemeld bij het versturen
+                toonMelding("Nieuw bericht: " + item.message);
+            }
+        };
+        ws.onclose = () => {
+            ws = null;
+            clearTimeout(watchdog);
+            if (document.visibilityState !== "visible") return;
+            const wachttijd = Math.min(30000, 1000 * 2 ** pogingen) + Math.random() * 1000;
+            pogingen += 1;
+            herkansing = setTimeout(verbind, wachttijd);
+        };
+    }
+
+    // Tab weg = verbinding dicht (geen connection-minuten bij Bunny);
+    // tab terug of netwerk terug = direct opnieuw verbinden.
+    document.addEventListener("visibilitychange", () => {
+        if (document.visibilityState === "visible") { pogingen = 0; verbind(); }
+        else { clearTimeout(herkansing); if (ws) { ws.close(); ws = null; } }
+    });
+    window.addEventListener("online", () => { pogingen = 0; verbind(); });
+    window.addEventListener("pageshow", verbind);
+    verbind();
+})();
+</script>

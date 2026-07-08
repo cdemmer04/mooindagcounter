@@ -1,186 +1,104 @@
 # Mooindagcounter
 
-Mooindag! FastAPI-teller met MariaDB als backend, draait op Bunny.net Magic Containers.
+Mooindag! FastAPI-teller, draait op Bunny.net Magic Containers.
 
-## Lokaal draaien
+## Twee varianten
 
-Kopieer het env-bestand en vul je waarden in:
+Twee complete deployment-varianten van dezelfde app. `web/app.py`, de
+templates en static zijn **byte-voor-byte identiek** (CI dwingt dit af);
+het enige codeverschil is de datalaag `web/db.py`.
 
-```bash
-cp src/web/.env.example .env
-```
-
-Start de app:
-
-```bash
-docker compose up --build
-```
-
-App draait op `http://localhost:8080`.
-
-## Omgevingsvariabelen
-
-| Variabele | Standaard | Omschrijving |
+| | [`microservices/`](microservices/) | [`bunny-libsql/`](bunny-libsql/) |
 |---|---|---|
-| `DB_HOST` | `localhost` | MariaDB hostnaam |
-| `DB_PORT` | `3306` | MariaDB poort |
-| `DB_USER` | `mooindagcounter` | DB gebruiker |
-| `DB_PASSWORD` | _(verplicht)_ | DB wachtwoord |
-| `DB_NAME` | `mooindagcounter` | Databasenaam |
-| `DISCORD_WEBHOOK_URL` | _(leeg)_ | Optioneel: Discord meldingen |
-| `GUNICORN_WORKERS` | `2` | Aantal Gunicorn+Uvicorn workers |
+| Database | MariaDB (zelf gehost) | [Bunny Database](https://bunny.net/database/) (managed, libSQL) |
+| Containers | web + db | alleen web |
+| Draait op | docker compose, Kubernetes, Bunny (2 apps) | Bunny Magic Containers |
+| Kosten database | ~$4/maand | ~$0 (usage-based) |
 
-## Database
+**Keuzehulp:** zelf een database willen beheren of op Kubernetes draaien
+(leerzaam!) → `microservices/`. Nul beheer en wereldwijd snelle reads →
+`bunny-libsql/`.
 
-Tabel `counts`, automatisch aangemaakt via `src/db/create_db.sql` bij eerste opstart.
+**Waarom deze opzet:** een database-sidecar per pod betekent op Bunny één
+database per regio met elk een eigen volume — dus een andere teller per
+refresh, een lege teller na opschalen en InnoDB-crashes bij afschalen.
+De regel is simpel: **web-laag stateless en vrij schaalbaar, de database op
+precies 1 plek (of managed)**. Zie de README per variant voor het stappenplan.
 
-| Kolom | Type |
-|---|---|
-| `id` | INT AUTO_INCREMENT PRIMARY KEY |
-| `message` | TEXT NOT NULL |
-| `date` | TEXT NOT NULL |
-| `time` | TEXT NOT NULL |
-| `client_ip` | TEXT NOT NULL |
+Elke response bevat een `X-Served-By` header (regio + pod-ID) zodat je kunt
+zien welke pod je bediende — handig om te checken dat alle regio's dezelfde
+database zien.
 
 ## Routes
 
-HTML-responses sturen `Cache-Control: no-store` zodat CDN's en browsers niets cachen.
+Identiek voor beide varianten. HTML gaat uit met `Cache-Control: no-store`
+zodat CDN's en browsers nooit een oude tellerstand tonen.
 
----
+| Route | Wat |
+|---|---|
+| `GET /` | Tellerstand + invoerformulier |
+| `POST /increment` | Nieuw bericht (max 300 tekens, uniek); redirect naar `/`, of JSON met de header `X-Requested-With: fetch` (zo verstuurt de frontend zonder paginaverversing) |
+| `GET /overview` | Tabel met alle counts, met verwijderknop |
+| `GET /api/counts` | Alle counts als JSON, nieuwste eerst |
+| `GET /api/counts/{id}` | Eén count als JSON |
+| `DELETE /api/counts/{id}` | Verwijdert een count (wachtwoord vereist, zie hieronder) |
+| `WS /ws` | Live tellerstand + nieuwe berichten (zie hieronder) |
+| `GET /robots.txt` | Robots-regels |
 
-### `GET /` — Teller pagina
+## Live updates
 
-Toont de huidige tellerstand en het invoerformulier.
+De teller tikt live bij en nieuwe berichten verschijnen als band die bovenin
+uitklapt, op `/` én `/overview` (daar komt het bericht ook live de tabel in),
+via een WebSocket op `/ws`. Werkt over regio's heen zonder extra
+infrastructuur: pods delen geen geheugen, dus **elke worker peilt de
+database** (1 kleine SELECT per `LIVE_POLL_SECONDS`, standaard 4s) en stuurt
+veranderingen naar zijn eigen kijkers — de database is de gedeelde waarheid.
 
-<details>
-<summary>Voorbeeld</summary>
+Bewust zuinig opgezet:
 
-```bash
-curl https://mooindagcounter.nl/
-```
+- gepeild wordt er **alleen zolang er kijkers verbonden zijn**;
+- de browser verbindt **alleen terwijl het tabblad zichtbaar is** (tab
+  weg = verbinding dicht = geen connection-minuten bij Bunny);
+- updates komen binnen ~`LIVE_POLL_SECONDS` overal aan — snel genoeg voor
+  een teller, en afgerond gratis qua reads en connection-minuten.
 
-</details>
+Betrouwbaarheid: is er niets te melden, dan stuurt de server elke ~25s een
+heartbeat. Zo ruimt hij kijkers op waarvan de close-frame nooit aankwam
+(CDN-proxy), en herkent de browser een dode verbinding (watchdog) om daarna
+met exponentiële backoff opnieuw te verbinden.
 
----
+## Verwijderen (wachtwoord)
 
-### `POST /increment` — Nieuwe count toevoegen
+Verwijderen vereist een wachtwoord dat **alleen via een secret** wordt
+ingesteld: `DELETE_PASSWORD`. Zonder die variabele staat verwijderen uit.
 
-Formulierveld `message` is verplicht (max 300 tekens, uniek). Redirect naar `/` na opslaan.
-
-<details>
-<summary>Voorbeeld</summary>
-
-```bash
-curl -X POST https://mooindagcounter.nl/increment \
-  -d "message=mooie+dag"
-```
-
-</details>
-
----
-
-### `GET /overview` — Overzicht (web UI)
-
-Tabel van alle counts, nieuwste eerst, met verwijderknop per rij.
-
-<details>
-<summary>Voorbeeld</summary>
-
-```bash
-curl https://mooindagcounter.nl/overview
-```
-
-</details>
-
----
-
-### `GET /api/counts` — Alle counts (JSON)
-
-Geeft alle counts terug als JSON-array, nieuwste eerst.
-
-<details>
-<summary>Voorbeeld</summary>
+De verwijderknop op `/overview` opent een wachtwoord-modal; de API verwacht
+het wachtwoord in de `X-Delete-Password` header. Na één juist wachtwoord is
+de browser **10 minuten vertrouwd** via een HMAC-getekende, HttpOnly cookie
+— daarna vraagt de modal opnieuw. Het wachtwoord zelf wordt nergens
+opgeslagen of gelogd.
 
 ```bash
-curl https://mooindagcounter.nl/api/counts
+curl -X DELETE https://mooindagcounter.nl/api/counts/15 \
+  -H "X-Delete-Password: $DELETE_PASSWORD"
 ```
-
-Respons:
-```json
-[
-  { "id": 15, "message": "kanusje", "date": "2026-05-14" },
-  { "id": 14, "message": "kanus",   "date": "2026-05-14" }
-]
-```
-
-</details>
-
----
-
-### `GET /api/counts/{id}` — Specifieke count (JSON)
-
-<details>
-<summary>Voorbeeld</summary>
-
-```bash
-curl https://mooindagcounter.nl/api/counts/15
-```
-
-Respons:
-```json
-{ "id": 15, "message": "kanusje", "date": "2026-05-14", "time": "19:58:42" }
-```
-
-</details>
-
----
-
-### `DELETE /api/counts/{id}` — Count verwijderen
-
-Verwijdert een count. De web UI (overzichtpagina) gebruikt ook dit endpoint via een `fetch`-aanroep.
-
-<details>
-<summary>Voorbeeld</summary>
-
-```bash
-curl -X DELETE https://mooindagcounter.nl/api/counts/15
-```
-
-Respons:
-```json
-{ "message": "Record 15 deleted" }
-```
-
-</details>
-
----
-
-### `GET /healthz` — Statuscheck
-
-Geeft `{"status": "ok"}` als de database bereikbaar is, anders HTTP 503.
-
-<details>
-<summary>Voorbeeld</summary>
-
-```bash
-curl https://mooindagcounter.nl/healthz
-```
-
-Respons:
-```json
-{ "status": "ok" }
-```
-
-</details>
-
----
-
-### `GET /robots.txt`
-
-Serveert `static/robots.txt` op het root-pad.
-
----
 
 ## Deployment
 
-Image wordt gebouwd en gepusht naar GHCR via GitHub Actions. Combineer met het `mooindagcounter-db` image voor de database. De app draait als Gunicorn+UvicornWorker (ASGI), HTTP/2 en HTTP/3 lopen via Bunny.net.
+GitHub Actions pusht drie images naar GHCR onder de namespace van de
+**repo-eigenaar** (`ghcr.io/<owner>/…`) — forks publiceren dus automatisch
+naar hun eigen namespace:
+
+| Image | Bron |
+|---|---|
+| `mooindag-web` | `microservices/web` |
+| `mooindag-db` | `microservices/db` |
+| `mooindag-libsql` | `bunny-libsql/web` |
+
+- Push naar `main` → `latest` + `sha-…`; via *Actions → Build & Push → Run
+  workflow* bouw je vanaf een branch (alleen `sha-…`).
+- **Nieuwe GHCR-packages staan standaard op private**; zet ze op public
+  (GitHub → Packages → Package settings) anders kan Bunny's "GitHub Public"
+  registry ze niet pullen.
+- Ander namespace op Kubernetes? Gebruik de `images:`-override in
+  `microservices/k8s/kustomization.yaml`.

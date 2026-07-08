@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="robots" content="noindex">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Overzicht</title>
+    <link rel="stylesheet" href="{{ url_for('static', path='bootstrap.min.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', path='app.css') }}">
+    <link rel="icon" type="image/png" href="{{ url_for('static', path='img/favicon/favicon-96x96.png') }}" sizes="96x96" />
+    <link rel="icon" type="image/svg+xml" href="{{ url_for('static', path='img/favicon/favicon.svg') }}" />
+    <link rel="shortcut icon" href="{{ url_for('static', path='img/favicon/favicon.ico') }}" />
+    <link rel="apple-touch-icon" sizes="180x180" href="{{ url_for('static', path='img/favicon/apple-touch-icon.png') }}" />
+    <meta name="apple-mobile-web-app-title" content="Mooindagcounter" />
+    <link rel="manifest" href="{{ url_for('static', path='img/favicon/site.webmanifest') }}" />
+</head>
+<!-- Mooindag... -->
+<body class="d-flex align-items-start min-vh-100">
+    <div class="container py-4">
+        <div class="row justify-content-center">
+        <div class="col-12 col-lg-10">
+        <div class="card shadow p-4">
+            <h1 class="mb-3">Overzicht</h1>
+            <p class="mb-1">Chatten met de afstudeerboyss&hellip; Nog eventjes volhouden! Heb je nog wat moois meegemaakt en wil je het delen? Kom maar dooorrrrr!</p>
+            <p class="text-danger fst-italic mb-1">Waarschuwing! Op deze webpagina bevinden zich mogelijk uitspraken die het daglicht niet kunnen verdragen. Betreden op eigen risico.</p>
+            <p class="text-danger fst-italic mb-3">De eigenaar van deze website is en was in geen enkele vorm aansprakelijk hiervoor.</p>
+            <div class="table-responsive">
+                <table class="table table-striped table-hover table-bordered mb-3">
+                    <thead class="table-success">
+                        <tr>
+                            <th>Count</th>
+                            <th>Bericht</th>
+                            <th>Datum</th>
+                            <th>Tijd</th>
+                            <th>Opties</th>
+                        </tr>
+                    </thead>
+                    <tbody id="counts-body">
+                        {% for row in data %}
+                        <tr>
+                            <td>{{ row['id'] }}</td>
+                            <td>"{{ row['message'] }}"</td>
+                            <td>{{ row['date'] }}</td>
+                            <td>{{ row['time'] }}</td>
+                            <td>
+                                <button type="button" class="btn btn-link text-danger p-0"
+                                        onclick="deleteCount({{ row['id'] }})"
+                                        aria-label="Verwijder bericht {{ row['id'] }}">Verwijder</button>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+                <!-- Sjabloon voor rijen die live binnenkomen (gebruikt door
+                     _live.html); zelfde opbouw als de Jinja-rijen hierboven. -->
+                <template id="rij-sjabloon">
+                    <tr>
+                        <td></td>
+                        <td></td>
+                        <td></td>
+                        <td></td>
+                        <td>
+                            <button type="button" class="btn btn-link text-danger p-0">Verwijder</button>
+                        </td>
+                    </tr>
+                </template>
+            </div>
+            <a class="btn btn-success" href="{{ url_for('index') }}">Terug naar counter</a>
+        </div>
+        </div>
+        </div>
+    </div>
+
+    <!-- Wachtwoord-modal voor verwijderen. Bootstrap-styling, maar de paar
+         regels toon/verberg-JS staan hieronder zodat we geen bootstrap.js
+         hoeven mee te leveren. -->
+    <div class="modal" id="deleteModal" tabindex="-1" style="background: rgba(0,0,0,.5)" aria-hidden="true">
+      <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title">Berichtje verwijderen</h5>
+            <button type="button" class="btn-close" onclick="verbergModal()" aria-label="Sluiten"></button>
+          </div>
+          <div class="modal-body">
+            <p class="mb-2">Vul het verwijder-wachtwoord in. Daarna mag je 10 minuten lang vrij verwijderen.</p>
+            <input type="password" id="deletePassword" class="form-control" placeholder="Wachtwoord" autocomplete="current-password">
+            <p id="deleteError" class="text-danger mt-2 mb-0 d-none"></p>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" onclick="verbergModal()">Annuleren</button>
+            <button type="button" class="btn btn-danger" id="deleteConfirm">Verwijder</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+<script>
+const modal = document.getElementById('deleteModal');
+const wachtwoordVeld = document.getElementById('deletePassword');
+const foutRegel = document.getElementById('deleteError');
+let teVerwijderenId = null;
+
+function toonModal() {
+    foutRegel.classList.add('d-none');
+    wachtwoordVeld.value = '';
+    modal.style.display = 'block';
+    modal.classList.add('show');
+    wachtwoordVeld.focus();
+}
+
+function verbergModal() {
+    modal.classList.remove('show');
+    modal.style.display = 'none';
+}
+
+async function verwijder(id, wachtwoord) {
+    const opties = { method: 'DELETE' };
+    if (wachtwoord) opties.headers = { 'X-Delete-Password': wachtwoord };
+    return fetch('/api/counts/' + id, opties);
+}
+
+// Verwijder-knop in de tabel: probeer direct (de sessie kan nog vertrouwd
+// zijn); vraag alleen om het wachtwoord als de server 401 teruggeeft.
+async function deleteCount(id) {
+    const res = await verwijder(id);
+    if (res.ok) return location.reload();
+    if (res.status === 401) { teVerwijderenId = id; toonModal(); return; }
+    alert((await res.json()).error);
+}
+
+document.getElementById('deleteConfirm').onclick = async () => {
+    const res = await verwijder(teVerwijderenId, wachtwoordVeld.value);
+    if (res.ok) return location.reload();
+    foutRegel.textContent = (await res.json()).error || 'Hmm, dat ging mis.';
+    foutRegel.classList.remove('d-none');
+};
+
+wachtwoordVeld.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') document.getElementById('deleteConfirm').click();
+});
+</script>
+
+    {% include "_live.html" %}
+</body>
+</html>

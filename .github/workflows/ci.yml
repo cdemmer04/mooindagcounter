@@ -6,15 +6,35 @@ on:
   push:
     branches: [main]
     paths:
-      - "src/**"
+      - "microservices/**"
+      - "bunny-libsql/**"
       - ".github/workflows/ci.yml"
   pull_request:
     branches: [main]
     paths:
-      - "src/**"
+      - "microservices/**"
+      - "bunny-libsql/**"
       - ".github/workflows/ci.yml"
 
 jobs:
+
+  # --- Variant-synchronisatie ---
+  # web/app.py, templates/ en static/ horen byte-voor-byte identiek te zijn
+  # tussen beide varianten; alleen de datalaag (web/db.py), requirements en
+  # de entrypoint mogen verschillen. Deze check voorkomt dat een fix in de
+  # ene variant de andere stilletjes mist.
+  variant-sync:
+    name: Varianten synchroon (app.py, templates, static)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Haal broncode op
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+
+      - name: Vergelijk gedeelde bestanden tussen de varianten
+        run: |
+          diff microservices/web/app.py bunny-libsql/web/app.py
+          diff -r microservices/web/templates bunny-libsql/web/templates
+          diff -r microservices/web/static bunny-libsql/web/static
 
   # --- Linting ---
   # Controleert Python-code op stijl- en kwaliteitsfouten met Ruff.
@@ -36,7 +56,7 @@ jobs:
 
       - name: Voer Ruff uit
         # Controleert stijl en importvolgorde; geeft een fout bij overtredingen.
-        run: ruff check src/web/
+        run: ruff check microservices/web/ bunny-libsql/web/
 
   # --- Statische beveiligingsanalyse (SAST) ---
   # Bandit scant Python-broncode op veelvoorkomende beveiligingsproblemen,
@@ -58,7 +78,7 @@ jobs:
 
       - name: Voer Bandit uit
         # -ll toont alleen medium- en high-severity bevindingen om ruis te beperken.
-        run: bandit -r src/web/ -ll
+        run: bandit -r microservices/web/ bunny-libsql/web/ -ll
 
   # --- Kwetsbaarheidsscan Python-afhankelijkheden ---
   # pip-audit vergelijkt requirements.txt met de PyPA Advisory Database (GHSA/CVE).
@@ -79,24 +99,31 @@ jobs:
         run: pip install pip-audit
 
       - name: Scan dependencies op kwetsbaarheden
-        run: pip-audit -r src/web/requirements.txt
+        run: pip-audit -r microservices/web/requirements.txt -r bunny-libsql/web/requirements.txt
 
   # --- Container image scan ---
   # Trivy bouwt het Docker-image en scant het op bekende CVE's in
   # zowel OS-pakketten (Debian/Alpine) als Python-afhankelijkheden.
   # Resultaten worden als SARIF geupload naar GitHub Security (tabblad "Security > Code scanning").
   trivy:
-    name: Container image scan (Trivy)
+    name: Container image scan (Trivy, ${{ matrix.variant }})
     runs-on: ubuntu-latest
     permissions:
       security-events: write   # Nodig voor het uploaden van SARIF naar GitHub Security.
       contents: read
+    strategy:
+      matrix:
+        include:
+          - variant: microservices
+            context: ./microservices/web
+          - variant: bunny-libsql
+            context: ./bunny-libsql/web
     steps:
       - name: Haal broncode op
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
 
       - name: Bouw Docker image voor scan
-        run: docker build -t scan-target:ci ./src/web
+        run: docker build -t scan-target:ci ${{ matrix.context }}
 
       - name: Scan image met Trivy
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
@@ -113,6 +140,8 @@ jobs:
         # Sla over als Code Scanning niet beschikbaar is (bijv. geen GitHub Advanced Security).
         if: always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
         continue-on-error: true
-        uses: github/codeql-action/upload-sarif@8aad20d150bbac5944a9f9d289da16a4b0d87c1e # v4
+        uses: github/codeql-action/upload-sarif@99df26d4f13ea111d4ec1a7dddef6063f76b97e9 # v4
         with:
           sarif_file: trivy-results.sarif
+          # Eigen categorie per variant zodat de resultaten elkaar niet overschrijven.
+          category: trivy-${{ matrix.variant }}
