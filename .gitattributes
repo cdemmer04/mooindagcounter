@@ -1,4 +1,5 @@
-# Shell-scripts moeten LF houden, ook op Windows-checkouts (core.autocrlf):
-# met CRLF wordt de shebang "#!/bin/sh\r" en faalt de container met
-# "exec ./entrypoint.sh: no such file or directory".
-*.sh text eol=lf
+# Alle tekstbestanden altijd LF, ook op Windows-checkouts (overrulet
+# core.autocrlf). Met CRLF breekt o.a. de shebang in shell-scripts:
+# "exec ./entrypoint.sh: no such file or directory" in de container.
+# Binaire bestanden (afbeeldingen, audio) herkent git zelf via text=auto.
+* text=auto eol=lf

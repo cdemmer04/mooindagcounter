@@ -19,7 +19,12 @@ from zoneinfo import ZoneInfo
 import httpx
 from dotenv import load_dotenv
 from fastapi import FastAPI, Form, Request, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
+from fastapi.responses import (
+    FileResponse,
+    JSONResponse,
+    PlainTextResponse,
+    RedirectResponse,
+)
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -35,6 +40,16 @@ logger = logging.getLogger("uvicorn.error")
 AMS = ZoneInfo(os.getenv("TZ", "Europe/Amsterdam"))
 MAX_MESSAGE_LENGTH = 300
 
+# Eén bron voor de foutteksten: de server stuurt ze mee in de JSON-response
+# én rendert ze in de template, zodat het fetch-pad en het kale formulier
+# nooit verschillende bewoordingen tonen.
+FOUTTEKSTEN = {
+    "empty": "Voer een bericht in!",
+    "too_long": f"Bericht mag maximaal {MAX_MESSAGE_LENGTH} tekens bevatten!",
+    "duplicate": "Dit bericht bestaat al!",
+    "offline": "De database is even niet beschikbaar. Probeer het zo nog eens.",
+}
+
 # Verwijder-wachtwoord: alleen via env/secret, nooit in de code. Niet
 # ingesteld betekent verwijderen uitgeschakeld. Na een juist wachtwoord is
 # de browser TRUST_SECONDS vertrouwd via een HMAC-getekende cookie.
@@ -46,7 +61,9 @@ TRUST_SECONDS = 600
 # kijkers zijn. De pods in verschillende regio's delen geen geheugen; de
 # (gerepliceerde) database is hun enige gedeelde waarheid, dus dit pollen
 # ís de synchronisatie. Eén SELECT per interval per worker — verwaarloosbaar.
-LIVE_POLL_SECONDS = float(os.getenv("LIVE_POLL_SECONDS", "4"))
+# Gecapt op 60s: de browser-watchdog (zie _live.html) sluit een verbinding
+# na 75s stilte, dus het peil-interval moet daar ruim onder blijven.
+LIVE_POLL_SECONDS = min(60.0, float(os.getenv("LIVE_POLL_SECONDS", "4")))
 
 # Is er niets te melden, dan gaat er elke HEARTBEAT_SECONDS een klein
 # heartbeat-frame uit. Zo kan de browser een stilletjes gesneuvelde
@@ -76,16 +93,43 @@ templates = Jinja2Templates(directory="templates")
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 
+# Security-headers (HSTS, anti-framing, CSP, enz.). De CSP staat
+# 'unsafe-inline' toe omdat de live-update JS/CSS bewust inline in de
+# templates reist (CDN-cache), en connect-src staat WebSockets toe.
+SECURITY_HEADERS = {
+    "strict-transport-security": "max-age=31536000; includeSubDomains; preload",
+    "x-frame-options": "DENY",
+    "x-content-type-options": "nosniff",
+    "referrer-policy": "no-referrer",
+    "permissions-policy": (
+        "geolocation=(), microphone=(), camera=(), payment=(), usb=(), "
+        "magnetometer=(), gyroscope=(), accelerometer=(), fullscreen=(self)"
+    ),
+    "content-security-policy": (
+        "default-src 'none'; base-uri 'self'; frame-ancestors 'none'; "
+        "form-action 'self'; frame-src 'none'; "
+        "script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; "
+        "font-src 'self' data:; img-src 'self' data:; media-src 'self'; "
+        "manifest-src 'self'; connect-src 'self' wss: ws:; object-src 'none'"
+    ),
+    "cross-origin-opener-policy": "same-origin",
+    "cross-origin-resource-policy": "same-origin",
+    "cross-origin-embedder-policy": "require-corp",
+}
+
+
 class ResponseHeadersMiddleware(BaseHTTPMiddleware):
     """
     'Cache-Control: no-store' op HTML zodat CDN's/browsers nooit een oude
-    tellerstand tonen, en 'X-Served-By' op alles voor multi-region debugging.
+    tellerstand tonen, 'X-Served-By' voor multi-region debugging, en de
+    security-headers op elke response (ook 404's en redirects).
     """
     async def dispatch(self, request, call_next):
         response = await call_next(request)
         if "text/html" in response.headers.get("content-type", ""):
             response.headers["cache-control"] = "no-store"
         response.headers["x-served-by"] = SERVED_BY
+        response.headers.update(SECURITY_HEADERS)
         return response
 
 
@@ -149,7 +193,7 @@ async def _poll_loop():
     veranderingen gaat er periodiek een heartbeat uit (zie HEARTBEAT_SECONDS).
     """
     last_id = None
-    laatste_zending = 0.0
+    laatste_zending = time.monotonic()
     while _ws_clients:
         try:
             payload = None
@@ -170,9 +214,15 @@ async def _poll_loop():
                         for r in nieuw
                     ],
                 }
-                last_id = latest
-            elif time.monotonic() - laatste_zending >= HEARTBEAT_SECONDS:
-                payload = {"hb": 1}
+                # get_counters_since geeft max 20 rijen; bij een grotere burst
+                # schuift last_id alleen op tot de laatst verstuurde rij, zodat
+                # de rest de volgende peiling alsnog meekomt.
+                last_id = nieuw[-1]["id"] if len(nieuw) == 20 else latest
+            elif last_id is not None and time.monotonic() - laatste_zending >= HEARTBEAT_SECONDS:
+                # Heartbeat in dezelfde vorm als een gewone update, zodat ook
+                # tabs die nog het oude script draaien (van vóór een deploy)
+                # hem zonder fouten verwerken.
+                payload = {"counter": last_id, "nieuw": []}
             if payload is not None:
                 laatste_zending = time.monotonic()
                 for client in list(_ws_clients):
@@ -246,6 +296,20 @@ async def index(request: Request):
     return templates.TemplateResponse(request, "index.html", {"counter": counter})
 
 
+def _increment_fout(request: Request, wil_json: bool, code: str, counter: int | None):
+    """Zelfde fout in twee vormen: JSON voor de fetch-frontend, HTML voor het kale formulier."""
+    if wil_json:
+        status = 503 if code == "offline" else 200
+        return JSONResponse(
+            {"ok": False, "error": code, "text": FOUTTEKSTEN[code]}, status_code=status
+        )
+    if code == "offline":
+        return offline_page(request)
+    return templates.TemplateResponse(
+        request, "index.html", {"counter": counter, "error_message": FOUTTEKSTEN[code]}
+    )
+
+
 @app.post("/increment")
 async def increment(request: Request, message: str = Form("")):
     """
@@ -258,25 +322,15 @@ async def increment(request: Request, message: str = Form("")):
     timestamp = datetime.now(tz=AMS)
     counter = await db.get_latest_counter()
     if counter is None:
-        if wil_json:
-            return JSONResponse({"ok": False, "error": "offline"}, status_code=503)
-        return offline_page(request)
+        return _increment_fout(request, wil_json, "offline", None)
 
     message = message.strip().lower()
     if not message:
-        error = "empty"
-    elif len(message) > MAX_MESSAGE_LENGTH:
-        error = "too_long"
-    elif await db.message_exists(message):
-        error = "duplicate"
-    else:
-        error = None
-    if error:
-        if wil_json:
-            return JSONResponse({"ok": False, "error": error})
-        return templates.TemplateResponse(
-            request, "index.html", {"counter": counter, "error_message": error}
-        )
+        return _increment_fout(request, wil_json, "empty", counter)
+    if len(message) > MAX_MESSAGE_LENGTH:
+        return _increment_fout(request, wil_json, "too_long", counter)
+    if await db.message_exists(message):
+        return _increment_fout(request, wil_json, "duplicate", counter)
 
     new_id = await db.save_counter(
         message,
@@ -285,16 +339,14 @@ async def increment(request: Request, message: str = Form("")):
         get_client_ip(request),
     )
     if new_id is None:
-        if wil_json:
-            return JSONResponse({"ok": False, "error": "offline"}, status_code=503)
-        return offline_page(request)
+        return _increment_fout(request, wil_json, "offline", None)
 
     task = asyncio.create_task(push_to_discord(new_id, message, timestamp))
     _background_tasks.add(task)
     task.add_done_callback(_background_tasks.discard)
     if wil_json:
         # De teller is het hoogste ID, dus het nieuwe ID ís de nieuwe stand.
-        return JSONResponse({"ok": True, "counter": new_id})
+        return JSONResponse({"ok": True, "counter": new_id, "message": message})
     return RedirectResponse(url="/", status_code=303)
 
 
@@ -309,6 +361,23 @@ async def overview(request: Request):
 @app.get("/robots.txt")
 async def robots_txt():
     return FileResponse("static/robots.txt", media_type="text/plain")
+
+
+# RFC 9116; Contact en Expires zijn verplicht, ondertekening is optioneel.
+# Expires jaarlijks opschuiven.
+SECURITY_TXT = (
+    "Contact: mailto:mail@mooindagcounter.nl\n"
+    "Expires: 2027-07-01T00:00:00.000Z\n"
+    "Preferred-Languages: nl, en\n"
+)
+
+
+@app.get("/.well-known/security.txt")
+@app.get("/security.txt")
+async def security_txt(request: Request):
+    # Canonical per hostname: dezelfde app draait op meerdere domeinen.
+    canonical = f"Canonical: https://{request.url.hostname}/.well-known/security.txt\n"
+    return PlainTextResponse(SECURITY_TXT + canonical)
 
 
 # --- JSON API --- Mooindag!

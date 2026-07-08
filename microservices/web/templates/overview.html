@@ -51,6 +51,19 @@
                         {% endfor %}
                     </tbody>
                 </table>
+                <!-- Sjabloon voor rijen die live binnenkomen (gebruikt door
+                     _live.html); zelfde opbouw als de Jinja-rijen hierboven. -->
+                <template id="rij-sjabloon">
+                    <tr>
+                        <td></td>
+                        <td></td>
+                        <td></td>
+                        <td></td>
+                        <td>
+                            <button type="button" class="btn btn-link text-danger p-0">Verwijder</button>
+                        </td>
+                    </tr>
+                </template>
             </div>
             <a class="btn btn-success" href="{{ url_for('index') }}">Terug naar counter</a>
         </div>

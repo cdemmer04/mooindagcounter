@@ -38,7 +38,13 @@
     let bandBezig = false;
 
     function toonMelding(tekst) {
-        wachtrij.push(tekst);
+        // Cap op de wachtrij: bij een burst geen minutenlange herhaling van
+        // oude meldingen, maar één samenvattende slotmelding.
+        if (wachtrij.length >= 5) {
+            wachtrij[wachtrij.length - 1] = "…en nog meer nieuwe berichten";
+        } else {
+            wachtrij.push(tekst);
+        }
         if (!bandBezig) volgendeMelding();
     }
 
@@ -66,40 +72,39 @@
     }
 
     // --- Overzichtstabel (alleen op /overview aanwezig) ---
+    // De rij-opbouw komt uit het <template id="rij-sjabloon"> dat in
+    // overview.html naast de Jinja-rijen staat, zodat de markup één keer
+    // bestaat en live rijen niet uit de pas lopen met de gerenderde.
     const tabel = document.getElementById("counts-body");
+    const rijSjabloon = document.getElementById("rij-sjabloon");
 
     function voegRijToe(item) {
-        if (!tabel) return;
-        const rij = tabel.insertRow(0);
-        rij.insertCell().textContent = item.id;
-        rij.insertCell().textContent = '"' + item.message + '"';
-        rij.insertCell().textContent = item.date;
-        rij.insertCell().textContent = item.time;
-        const knop = document.createElement("button");
-        knop.type = "button";
-        knop.className = "btn btn-link text-danger p-0";
-        knop.textContent = "Verwijder";
+        if (!tabel || !rijSjabloon) return;
+        const rij = rijSjabloon.content.firstElementChild.cloneNode(true);
+        const cellen = rij.children;
+        cellen[0].textContent = item.id;
+        cellen[1].textContent = '"' + item.message + '"';
+        cellen[2].textContent = item.date;
+        cellen[3].textContent = item.time;
+        const knop = rij.querySelector("button");
         knop.setAttribute("aria-label", "Verwijder bericht " + item.id);
         knop.onclick = () => deleteCount(item.id);
-        rij.insertCell().appendChild(knop);
+        tabel.prepend(rij);
     }
 
     // --- Eigen submits via fetch: geen paginaverversing, dus de eigen
     //     melding is altijd zichtbaar. Zonder JS werkt het formulier gewoon. ---
     const formulier = document.getElementById("increment-form");
     const foutRegel = document.getElementById("live-fout");
-    const eigenBerichten = new Set();  // net verstuurd: geen dubbele melding via de socket
-    const FOUTTEKSTEN = {
-        empty: "Voer een bericht in!",
-        duplicate: "Dit bericht bestaat al!",
-        too_long: "Bericht mag maximaal 300 tekens bevatten!",
-        offline: "De database is even niet bereikbaar. Probeer het zo nog eens.",
-    };
+    const eigenIds = new Set();  // net toegekende ID's: geen dubbele melding via de socket
+
+    function toonFout(tekst) {
+        foutRegel.textContent = tekst || "";
+        foutRegel.classList.toggle("d-none", !tekst);
+    }
 
     if (formulier) formulier.addEventListener("submit", async (e) => {
         e.preventDefault();
-        const invoer = formulier.elements.message;
-        const bericht = invoer.value.trim().toLowerCase();
         let data;
         try {
             const res = await fetch(formulier.action, {
@@ -109,27 +114,28 @@
             });
             data = await res.json();
         } catch {
-            formulier.submit();  // fetch mislukt: val terug op de gewone formulier-post
+            // NIET opnieuw posten: de eerste POST kan al verwerkt zijn en een
+            // herhaling zou een dubbele inzending worden. Invoer blijft staan.
+            toonFout("Versturen is niet gelukt. Controleer je verbinding en probeer het opnieuw.");
             return;
         }
         if (!data.ok) {
-            foutRegel.textContent = FOUTTEKSTEN[data.error] || data.error;
-            foutRegel.classList.remove("d-none");
+            toonFout(data.text || "Er ging iets mis.");
             return;
         }
-        foutRegel.classList.add("d-none");
-        invoer.value = "";
-        eigenBerichten.add(bericht);
-        setTimeout(() => eigenBerichten.delete(bericht), 30000);
+        toonFout(null);
+        formulier.elements.message.value = "";
+        eigenIds.add(data.counter);
         zetTeller(data.counter);
-        toonMelding("Nieuw bericht: " + bericht);
+        toonMelding("Nieuw bericht: " + data.message);
     });
 
     // --- WebSocket met herverbinden (exponentiële backoff) en watchdog ---
     let ws = null, herkansing = null, watchdog = null, pogingen = 0;
 
-    // De server stuurt minstens elke ~25s iets (update of heartbeat); 75s
-    // stilte betekent een dode verbinding die de browser zelf niet opmerkte.
+    // De server stuurt minstens elke ~25s iets (update of heartbeat; het
+    // peil-interval is server-side gecapt op 60s). 75s stilte betekent dus
+    // een dode verbinding die de browser zelf niet opmerkte.
     function resetWatchdog() {
         clearTimeout(watchdog);
         watchdog = setTimeout(() => { if (ws) ws.close(); }, 75000);
@@ -143,11 +149,10 @@
             pogingen = 0;  // een echt bericht = gezonde verbinding
             resetWatchdog();
             const data = JSON.parse(e.data);
-            if (data.hb) return;  // heartbeat: alleen de watchdog voeden
             zetTeller(data.counter);
             for (const item of data.nieuw) {
                 voegRijToe(item);
-                if (eigenBerichten.has(item.message)) continue;  // al gemeld bij het versturen
+                if (eigenIds.delete(item.id)) continue;  // al gemeld bij het versturen
                 toonMelding("Nieuw bericht: " + item.message);
             }
         };

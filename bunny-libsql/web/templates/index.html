@@ -36,24 +36,21 @@
                     </style>
 
                     <div class="afstudeer aftelklok mb-3" data-begin="2027-02-01T00:00:00+01:00" data-eind="2027-07-04T23:59:59+02:00">
-                        <div class="afstudeer-titel">Afstudeercounter</div>
+                        <div class="afstudeer-titel" aria-live="polite">Afstudeercounter</div>
                         <div class="afstudeer-sub" data-rol="status">--</div>
                         <div class="afstudeer-klok"></div>
                     </div>
 
                     <div class="afstudeer aftelklok mb-4" data-eind="2027-07-04T23:59:59+02:00">
-                        <div class="afstudeer-titel">Studieklaarcounter</div>
+                        <div class="afstudeer-titel" aria-live="polite">Studieklaarcounter</div>
                         <div class="afstudeer-klok"></div>
                     </div>
 
-                    <!-- Server-gerenderde fouten (formulier-post zonder JS);
-                         de fetch-variant gebruikt #live-fout hieronder. -->
-                    {% if error_message == "empty" %}
-                    <p class="text-danger">Voer een bericht in!</p>
-                    {% elif error_message == "duplicate" %}
-                    <p class="text-danger">Dit bericht bestaat al!</p>
-                    {% elif error_message == "too_long" %}
-                    <p class="text-danger">Bericht mag maximaal 300 tekens bevatten!</p>
+                    <!-- Server-gerenderde fout (formulier-post zonder JS); de tekst
+                         komt uit FOUTTEKSTEN in app.py, net als bij het fetch-pad,
+                         dat #live-fout hieronder gebruikt. -->
+                    {% if error_message %}
+                    <p class="text-danger">{{ error_message }}</p>
                     {% endif %}
                     <p id="live-fout" class="text-danger d-none"></p>
 
@@ -73,7 +70,8 @@
     <!-- Aftelklokken; volledig client-side. Een klok met data-begin telt
          eerst af naar het begin ("begint over") en daarna naar het einde
          ("bezig! klaar over"); zonder data-begin telt hij alleen af naar
-         het einde. Tikt per seconde zodat de minuut precies op tijd omslaat. -->
+         het einde. Tikt op de minuutgrens (er staan geen seconden in beeld)
+         en stopt helemaal zodra alle klokken klaar zijn. -->
     <script>
     (function () {
         const LABELS = ["dagen", "uren", "minuten"];
@@ -112,23 +110,28 @@
 
         function tick() {
             const nu = Date.now();
+            let klaar = true;
             for (const k of klokken) {
                 if (nu >= k.eind) {
                     toon(k, 0);
                     k.titel.textContent = "🎉 Afgestudeerd!";
-                    if (k.status) { k.status.remove(); k.status = null; }
-                } else if (k.begin !== null && nu < k.begin) {
-                    k.status.textContent = "begint over";
-                    toon(k, k.begin - nu);
+                    if (k.status) k.status.textContent = "";
                 } else {
-                    if (k.status) k.status.textContent = "bezig! klaar over";
-                    toon(k, k.eind - nu);
+                    klaar = false;
+                    const naarBegin = k.begin !== null && nu < k.begin;
+                    if (k.status) k.status.textContent = naarBegin ? "begint over" : "bezig! klaar over";
+                    toon(k, (naarBegin ? k.begin : k.eind) - nu);
                 }
             }
+            return klaar;
         }
 
-        tick();
-        setInterval(tick, 1000);
+        // Plan de volgende tik net na de minuutgrens; klaar = geen timers meer.
+        function plan() {
+            if (tick()) return;
+            setTimeout(plan, 60050 - (Date.now() % 60000));
+        }
+        plan();
     })();
     </script>
 
